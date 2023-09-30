@@ -44,7 +44,7 @@
     <WarningLevel>4</WarningLevel>
   </PropertyGroup>
   <ItemGroup>
-    <Compile Include="CodeAnalysis\DocumentTemplate.cs" />
+    <Compile Include="CodeAnalysis\CompilationUnitSyntaxExtensions.cs" />
     <Compile Include="CodeAnalysis\INamedTypeSymbolExtensions.cs" />
     <Compile Include="CodeAnalysis\ISymbolExtensions.cs" />
     <Compile Include="CodeAnalysis\ITypeSymbolExtensions.cs" />

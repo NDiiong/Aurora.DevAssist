@@ -1,10 +1,14 @@
 ﻿using ClassGenerator.CodeAnalysis;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
+using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.VisualStudio.Shell;
+using System.Collections.Immutable;
 using System.Composition;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace ClassGenerator.CodeRefactorings
@@ -12,24 +16,128 @@ namespace ClassGenerator.CodeRefactorings
     [ExportCodeRefactoringProvider(LanguageNames.CSharp, Name = nameof(RequestCodeRefactoringProvider)), Shared]
     public class RequestCodeRefactoringProvider : CodeRefactoringProvider
     {
+        private const string INTERFACE_QUERY = "IQuery";
+        private const string DEFAULT_PROJECT_QUERY = "Aurora.FIN.Domain";
+        private const string DEFAULT_NAMESPACE_QUERY = "Aurora.FIN.Domain.Queries";
+
+        private readonly string[] _defaultFolderQuery = new[] { "Queries" };
+        private readonly string[] _defaultUsingsQuery = new[] { "Aurora.FIN.Domain.Dtos", "Travel2Pay.Cqrs.Queries", };
+
         public override async Task ComputeRefactoringsAsync(CodeRefactoringContext context)
         {
-            var root = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+            var document = context.Document;
+            var cancellationToken = context.CancellationToken;
+            var syntaxRoot = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+            var node = syntaxRoot.FindNode(context.Span);
+            if (node is IdentifierNameSyntax identifierSyntax && node.Parent is ObjectCreationExpressionSyntax)
+            {
+                var className = identifierSyntax?.Identifier.Text;
+                var solution = context.Document?.Project?.Solution;
 
-            var methodDeclarations = root.ExtractSelectedNodesOfType<MethodDeclarationSyntax>(context.Span, true).ToArray();
-            var classDeclarations = root.ExtractSelectedNodesOfType<ClassDeclarationSyntax>(context.Span, true).ToArray();
-            var text = root.ExtractSelectedNodesOfType<IdentifierNameSyntax>(context.Span, true).ToArray();
+                var existingClass = await FindExistingClassAsync(solution, className, context.CancellationToken);
+                if (existingClass != null)
+                    return;
+
+                var query = CodeAction.Create("Create IQuery", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
+                var queryHandler = CodeAction.Create("Create QueryHandler", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
+
+                var command = CodeAction.Create("Create ICommand", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
+                var commandHandler = CodeAction.Create("Create CommandHandler", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
+
+                var group = CodeAction.Create("Aurora", ImmutableArray.Create(new[] { query, queryHandler, command, commandHandler }), false);
+                context.RegisterRefactoring(group);
+            }
         }
 
-        public async Task AddDocumentAsync(Solution solution, string projectName, string fileName, string folder, CompilationUnitSyntax syntax)
+        private async Task<Solution> CreateQueryClassAsync(Document document, string className, CancellationToken cancellationToken)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var project = solution.Projects.FirstOrDefault(p => p.Name == projectName);
-            if (project != null)
+            var requestClassDocument = GenerateDocument(className, DEFAULT_NAMESPACE_QUERY, _defaultFolderQuery, _defaultUsingsQuery);
+            cancellationToken.ThrowIfCancellationRequested();
+            return await AddDocumentAsync(document.Project.Solution, DEFAULT_PROJECT_QUERY, requestClassDocument.FileName, requestClassDocument.Folder, requestClassDocument.Syntax);
+        }
+
+        private async Task<INamedTypeSymbol> FindExistingClassAsync(Solution solution, string className, CancellationToken cancellationToken)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            if (solution != null && !string.IsNullOrWhiteSpace(className))
             {
-                var updateProject = project.AddDocument(fileName, syntax, new[] { folder }).Project;
-                solution.Workspace.TryApplyChanges(updateProject.Solution);
+                foreach (var project in solution.Projects)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+
+                    foreach (var document in project.Documents)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+
+                        var semanticModel = await document.GetSemanticModelAsync();
+                        var root = await document.GetSyntaxRootAsync();
+
+                        foreach (var classDeclaration in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+
+                            var symbol = semanticModel.GetDeclaredSymbol(classDeclaration);
+                            if (symbol?.Name == className)
+                            {
+                                if (symbol.ContainingNamespace.ToDisplayString() != document.Project.DefaultNamespace)
+                                {
+                                    return symbol;
+                                }
+                            }
+                        }
+                    }
+                }
             }
+
+            return null;
+        }
+
+        private async Task<Solution> AddDocumentAsync(Solution solution, string projectName, string fileName, string[] folder, CompilationUnitSyntax syntax)
+        {
+            if (solution != null)
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var project = solution.Projects.FirstOrDefault(p => p.Name == projectName);
+                if (project != null)
+                {
+                    var updateProject = project.AddDocument(fileName, syntax, folder).Project;
+                    return updateProject.Solution;
+                }
+            }
+
+            return solution;
+        }
+
+        private static DocumentContext GenerateDocument(string className, string @namespace, string[] folder, params string[] usings)
+        {
+            return new DocumentContext
+            {
+                Syntax = GenerateSyntax(className, @namespace, usings),
+                FileName = className,
+                Folder = folder
+            };
+        }
+
+        private static CompilationUnitSyntax GenerateSyntax(string className, string @namespace, params string[] usings)
+        {
+            var compilationUnit = SyntaxFactory.CompilationUnit();
+            compilationUnit = compilationUnit.AddUsings(@namespace, usings);
+
+            var newNamespace = SyntaxFactoryEx.NamespaceDeclaration(@namespace);
+            var classDeclaration = SyntaxFactoryEx.PublicClassDeclaration(className);
+            classDeclaration = classDeclaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(SyntaxFactory.IdentifierName(RequestCodeRefactoringProvider.INTERFACE_QUERY)));
+            newNamespace = newNamespace.AddMembers(classDeclaration);
+            compilationUnit = compilationUnit.AddMembers(newNamespace);
+            return compilationUnit.NormalizeWhitespace();
+        }
+
+        private class DocumentContext
+        {
+            public string FileName { get; set; }
+            public string[] Folder { get; set; }
+            public CompilationUnitSyntax Syntax { get; set; }
         }
     }
 }
