@@ -133,7 +133,7 @@ namespace ClassGenerator.CodeRefactorings
                 }
             }
 
-            return solution;
+            return default;
         }
 
         private class DocumentContext
