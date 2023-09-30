@@ -114,18 +114,17 @@ namespace ClassGenerator.CodeRefactorings
                         cancellationToken.ThrowIfCancellationRequested();
 
                         var semanticModel = await document.GetSemanticModelAsync();
-                        var root = await document.GetSyntaxRootAsync();
-
-                        foreach (var classDeclaration in root.DescendantNodes().OfType<ClassDeclarationSyntax>())
+                        var syntaxRoot = await document.GetSyntaxRootAsync();
+                        foreach (var classDeclaration in syntaxRoot.DescendantNodes().OfType<ClassDeclarationSyntax>())
                         {
                             cancellationToken.ThrowIfCancellationRequested();
 
-                            var symbol = semanticModel.GetDeclaredSymbol(classDeclaration);
-                            if (symbol?.Name == className)
+                            var declaredSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
+                            if (declaredSymbol?.Name == className)
                             {
-                                if (symbol.ContainingNamespace.ToDisplayString() != document.Project.DefaultNamespace)
+                                if (declaredSymbol.ContainingNamespace.ToDisplayString() != document.Project.DefaultNamespace)
                                 {
-                                    return symbol;
+                                    return declaredSymbol;
                                 }
                             }
                         }
