@@ -27,24 +27,24 @@ namespace ClassGenerator.CodeRefactorings
         {
             var document = context.Document;
             var cancellationToken = context.CancellationToken;
-            var syntaxRoot = await context.Document.GetSyntaxRootAsync(context.CancellationToken).ConfigureAwait(false);
+
+            var syntaxRoot = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
             var node = syntaxRoot.FindNode(context.Span);
+
             if (node is IdentifierNameSyntax identifierSyntax && node.Parent is ObjectCreationExpressionSyntax)
             {
                 var className = identifierSyntax?.Identifier.Text;
-                var solution = context.Document?.Project?.Solution;
+                var solution = document?.Project?.Solution;
 
-                var existingClass = await FindExistingClassAsync(solution, className, context.CancellationToken);
+                var existingClass = await FindExistingClassAsync(solution, className, cancellationToken);
                 if (existingClass != null)
-                {
                     return;
-                }
 
-                var query = CodeAction.Create("Create IQuery", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
-                var queryHandler = CodeAction.Create("Create QueryHandler", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
+                var query = CodeAction.Create("Create IQuery", cancellation => CreateQueryClassAsync(document, className, cancellation));
+                var queryHandler = CodeAction.Create("Create QueryHandler", cancellation => CreateQueryClassAsync(document, className, cancellation));
 
-                var command = CodeAction.Create("Create ICommand", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
-                var commandHandler = CodeAction.Create("Create CommandHandler", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
+                var command = CodeAction.Create("Create ICommand", cancellation => CreateQueryClassAsync(document, className, cancellation));
+                var commandHandler = CodeAction.Create("Create CommandHandler", cancellation => CreateQueryClassAsync(document, className, cancellation));
 
                 var group = CodeAction.Create("Aurora", ImmutableArray.Create(new[] { query, queryHandler, command, commandHandler }), false);
                 context.RegisterRefactoring(group);
