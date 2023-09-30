@@ -36,7 +36,9 @@ namespace ClassGenerator.CodeRefactorings
 
                 var existingClass = await FindExistingClassAsync(solution, className, context.CancellationToken);
                 if (existingClass != null)
+                {
                     return;
+                }
 
                 var query = CodeAction.Create("Create IQuery", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
                 var queryHandler = CodeAction.Create("Create QueryHandler", cancellation => CreateQueryClassAsync(context.Document, className, cancellation));
@@ -52,9 +54,49 @@ namespace ClassGenerator.CodeRefactorings
         private async Task<Solution> CreateQueryClassAsync(Document document, string className, CancellationToken cancellationToken)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-            var requestClassDocument = GenerateDocument(className, DEFAULT_NAMESPACE_QUERY, _defaultFolderQuery, _defaultUsingsQuery);
+
+            var requestClassDocument = GenerateQueryClassDocument(className, DEFAULT_NAMESPACE_QUERY, _defaultFolderQuery, _defaultUsingsQuery);
             cancellationToken.ThrowIfCancellationRequested();
             return await AddDocumentAsync(document.Project.Solution, DEFAULT_PROJECT_QUERY, requestClassDocument.FileName, requestClassDocument.Folder, requestClassDocument.Syntax);
+        }
+
+        private static DocumentContext GenerateQueryClassDocument(string className, string @namespace, string[] folder, params string[] usings)
+        {
+            return new DocumentContext
+            {
+                Syntax = GenerateQueryClassSyntax(className, @namespace, usings),
+                FileName = className,
+                Folder = folder
+            };
+        }
+
+        private static CompilationUnitSyntax GenerateQueryClassSyntax(string className, string @namespace, params string[] usings)
+        {
+            var compilationUnit = SyntaxFactory.CompilationUnit();
+            compilationUnit = compilationUnit.AddUsings(@namespace, usings);
+
+            var newNamespace = SyntaxFactoryEx.NamespaceDeclaration(@namespace);
+            var classDeclaration = SyntaxFactoryEx.PublicClassDeclaration(className);
+            classDeclaration = classDeclaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(SyntaxFactory.IdentifierName(INTERFACE_QUERY)));
+            newNamespace = newNamespace.AddMembers(classDeclaration);
+            compilationUnit = compilationUnit.AddMembers(newNamespace);
+            return compilationUnit.NormalizeWhitespace();
+        }
+
+        private async Task<Solution> AddDocumentAsync(Solution solution, string projectName, string fileName, string[] folder, CompilationUnitSyntax syntax)
+        {
+            if (solution != null)
+            {
+                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+                var project = solution.Projects.FirstOrDefault(p => p.Name == projectName);
+                if (project != null)
+                {
+                    var updateProject = project.AddDocument(fileName, syntax, folder).Project;
+                    return updateProject.Solution;
+                }
+            }
+
+            return solution;
         }
 
         private async Task<INamedTypeSymbol> FindExistingClassAsync(Solution solution, string className, CancellationToken cancellationToken)
@@ -91,46 +133,7 @@ namespace ClassGenerator.CodeRefactorings
                 }
             }
 
-            return null;
-        }
-
-        private async Task<Solution> AddDocumentAsync(Solution solution, string projectName, string fileName, string[] folder, CompilationUnitSyntax syntax)
-        {
-            if (solution != null)
-            {
-                await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-                var project = solution.Projects.FirstOrDefault(p => p.Name == projectName);
-                if (project != null)
-                {
-                    var updateProject = project.AddDocument(fileName, syntax, folder).Project;
-                    return updateProject.Solution;
-                }
-            }
-
             return solution;
-        }
-
-        private static DocumentContext GenerateDocument(string className, string @namespace, string[] folder, params string[] usings)
-        {
-            return new DocumentContext
-            {
-                Syntax = GenerateSyntax(className, @namespace, usings),
-                FileName = className,
-                Folder = folder
-            };
-        }
-
-        private static CompilationUnitSyntax GenerateSyntax(string className, string @namespace, params string[] usings)
-        {
-            var compilationUnit = SyntaxFactory.CompilationUnit();
-            compilationUnit = compilationUnit.AddUsings(@namespace, usings);
-
-            var newNamespace = SyntaxFactoryEx.NamespaceDeclaration(@namespace);
-            var classDeclaration = SyntaxFactoryEx.PublicClassDeclaration(className);
-            classDeclaration = classDeclaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(SyntaxFactory.IdentifierName(RequestCodeRefactoringProvider.INTERFACE_QUERY)));
-            newNamespace = newNamespace.AddMembers(classDeclaration);
-            compilationUnit = compilationUnit.AddMembers(newNamespace);
-            return compilationUnit.NormalizeWhitespace();
         }
 
         private class DocumentContext
