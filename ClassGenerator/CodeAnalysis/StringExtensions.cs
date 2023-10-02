@@ -16,6 +16,23 @@ namespace ClassGenerator.CodeAnalysis
             return false;
         }
 
+        public static string Format(this string text, string value)
+        {
+            return string.Format(text, value);
+        }
+
+        public static string[] Format(this string[] text, string value)
+        {
+            var @string = new string[text.Length];
+
+            for (var i = 0; i < text.Length; i++)
+            {
+                @string[i] = string.Format(text[i], value);
+            }
+
+            return @string;
+        }
+
         public static string WithoutPrefix(this string text)
         {
             if (text.HasPrefix())

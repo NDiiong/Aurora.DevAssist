@@ -4,10 +4,12 @@ using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Microsoft.CodeAnalysis.Text;
 using Microsoft.VisualStudio.Shell;
 using System.Collections.Immutable;
 using System.Composition;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -16,22 +18,39 @@ namespace ClassGenerator.CodeRefactorings
     [ExportCodeRefactoringProvider(LanguageNames.CSharp, Name = nameof(RequestCodeRefactoringProvider)), Shared]
     public class RequestCodeRefactoringProvider : CodeRefactoringProvider
     {
-        private const string INTERFACE_QUERY = "IQuery";
-        private const string DEFAULT_PROJECT_QUERY = "Aurora.FIN.Domain";
-        private const string DEFAULT_NAMESPACE_QUERY = "Aurora.FIN.Domain.Queries";
+        private const string NAMESPACE_PATTERN = @"Aurora\.(?'service'\w+)";
 
-        private readonly string[] _defaultFolderQuery = new[] { "Queries" };
-        private readonly string[] _defaultUsingsQuery = new[] { "Aurora.FIN.Domain.Dtos", "Travel2Pay.Cqrs.Queries", };
+        private const string INTERFACE_QUERY = "IQuery";
+        private const string INTERFACE_COMMANDS = "ICommand";
+
+        private const string DEFAULT_PROJECT_DOMAIN = "Aurora.{0}.Domain";
+
+        private const string DEFAULT_NAMESPACE_QUERY = "Aurora.{0}.Domain.Queries";
+        private readonly string[] FOLDER_QUERY = new[] { "Queries" };
+        private readonly string[] USINGS_QUERY = new[] { "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Queries", };
+
+        private const string DEFAULT_NAMESPACE_COMMAND = "Aurora.{0}.Domain.Commands";
+        private readonly string[] FOLDER_COMMAND = new[] { "Commands" };
+        private readonly string[] USINGS_COMMAND = new[] { "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Commands", };
+
+        private const string DEFAULT_NAMESPACE_QUERY_HANDLER = "Aurora.{0}.{1}.Queries";
+        private readonly string[] FOLDER_QUERY_HANDLER = new[] { "Queries" };
+        private readonly string[] USINGS_QUERY_HANDLER = new[] { "Aurora.{0}.Domain.Queries", "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Queries", };
+
+        private const string DEFAULT_NAMESPACE_COMMAND_HANDLER = "Aurora.{0}.{1}.Commands";
+        private readonly string[] FOLDER_COMMAND_HANDLER = new[] { "Commands" };
+        private readonly string[] USINGS_COMMAND_HANDLER = new[] { "Aurora.{0}.Domain.Commands", "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Commands", };
 
         public override async Task ComputeRefactoringsAsync(CodeRefactoringContext context)
         {
             var document = context.Document;
             var cancellationToken = context.CancellationToken;
+            var semanticModel = await document.GetSemanticModelAsync();
 
             var syntaxRoot = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
             var node = syntaxRoot.FindNode(context.Span);
 
-            if (node is IdentifierNameSyntax identifierSyntax && node.Parent is ObjectCreationExpressionSyntax)
+            if (node is IdentifierNameSyntax identifierSyntax && node.Parent is ObjectCreationExpressionSyntax objectCreationSyntax)
             {
                 var className = identifierSyntax?.Identifier.Text;
                 var solution = document?.Project?.Solution;
@@ -40,44 +59,72 @@ namespace ClassGenerator.CodeRefactorings
                 if (existingClass != null)
                     return;
 
-                var query = CodeAction.Create("Create IQuery", cancellation => CreateQueryClassAsync(document, className, cancellation));
-                var queryHandler = CodeAction.Create("Create QueryHandler", cancellation => CreateQueryClassAsync(document, className, cancellation));
+                var @namespace = await GetFirstOrDefaultNamespaceAsync(document, node.Span, cancellationToken);
+                if (string.IsNullOrEmpty(@namespace))
+                    return;
 
-                var command = CodeAction.Create("Create ICommand", cancellation => CreateQueryClassAsync(document, className, cancellation));
-                var commandHandler = CodeAction.Create("Create CommandHandler", cancellation => CreateQueryClassAsync(document, className, cancellation));
+                var serviceName = GetServiceName(@namespace);
 
-                var group = CodeAction.Create("Aurora", ImmutableArray.Create(new[] { query, queryHandler, command, commandHandler }), false);
+                if (string.IsNullOrEmpty(serviceName))
+                    return;
+
+                var query = CodeAction.Create("Create IQuery", cancellation => CreateQueryClassAsync(document, serviceName, className, cancellation));
+                //var queryHandler = CodeAction.Create("Create QueryHandler", cancellation => CreateQueryHandlerClassAsync(document, serviceName, className, cancellation));
+
+                var command = CodeAction.Create("Create ICommand", cancellation => CreateCommandClassAsync(document, serviceName, className, cancellation));
+                //var commandHandler = CodeAction.Create("Create CommandHandler", cancellation => CreateCommandHandlerClassAsync(document, serviceName, className, cancellation));
+
+                var group = CodeAction.Create("Aurora", ImmutableArray.Create(new[] { query, command, /*queryHandler , commandHandler*/ }), false);
                 context.RegisterRefactoring(group);
             }
         }
 
-        private async Task<Solution> CreateQueryClassAsync(Document document, string className, CancellationToken cancellationToken)
+        //private async Task<Solution> CreateCommandHandlerClassAsync(Document document, string serviceName, string className, CancellationToken cancellation)
+        //{
+        //    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        //}
+
+        //private static async Task<Solution> CreateQueryHandlerClassAsync(Document document, string serviceName, string className, CancellationToken cancellation)
+        //{
+        //    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+        //}
+
+        private async Task<Solution> CreateCommandClassAsync(Document document, string serviceName, string @class, CancellationToken cancellationToken)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
-            var requestClassDocument = GenerateQueryClassDocument(className, DEFAULT_NAMESPACE_QUERY, _defaultFolderQuery, _defaultUsingsQuery);
+            var @using = USINGS_COMMAND.Format(serviceName);
+            var @namespace = DEFAULT_NAMESPACE_COMMAND.Format(serviceName);
+            var @project = DEFAULT_PROJECT_DOMAIN.Format(serviceName);
+
+            var syntax = GenerateQueryClassSyntax(@class, @namespace, INTERFACE_COMMANDS, @using);
+
             cancellationToken.ThrowIfCancellationRequested();
-            return await AddDocumentAsync(document.Project.Solution, DEFAULT_PROJECT_QUERY, requestClassDocument.FileName, requestClassDocument.Folder, requestClassDocument.Syntax);
+            return await AddDocumentAsync(document.Project.Solution, @project, @class, FOLDER_COMMAND, syntax);
         }
 
-        private static DocumentContext GenerateQueryClassDocument(string className, string @namespace, string[] folder, params string[] usings)
+        private async Task<Solution> CreateQueryClassAsync(Document document, string serviceName, string @class, CancellationToken cancellationToken)
         {
-            return new DocumentContext
-            {
-                Syntax = GenerateQueryClassSyntax(className, @namespace, usings),
-                FileName = className,
-                Folder = folder
-            };
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            var @using = USINGS_QUERY.Format(serviceName);
+            var @namespace = DEFAULT_NAMESPACE_QUERY.Format(serviceName);
+            var @project = DEFAULT_PROJECT_DOMAIN.Format(serviceName);
+
+            var syntax = GenerateQueryClassSyntax(@class, @namespace, INTERFACE_QUERY, @using);
+
+            cancellationToken.ThrowIfCancellationRequested();
+            return await AddDocumentAsync(document.Project.Solution, @project, @class, FOLDER_QUERY, syntax);
         }
 
-        private static CompilationUnitSyntax GenerateQueryClassSyntax(string className, string @namespace, params string[] usings)
+        private static CompilationUnitSyntax GenerateQueryClassSyntax(string @class, string @namespace, string @interface, params string[] usings)
         {
             var compilationUnit = SyntaxFactory.CompilationUnit();
             compilationUnit = compilationUnit.AddUsings(@namespace, usings);
 
             var newNamespace = SyntaxFactoryEx.NamespaceDeclaration(@namespace);
-            var classDeclaration = SyntaxFactoryEx.PublicClassDeclaration(className);
-            classDeclaration = classDeclaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(SyntaxFactory.IdentifierName(INTERFACE_QUERY)));
+            var classDeclaration = SyntaxFactoryEx.PublicClassDeclaration(@class);
+            classDeclaration = classDeclaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(SyntaxFactory.IdentifierName(@interface)));
             newNamespace = newNamespace.AddMembers(classDeclaration);
             compilationUnit = compilationUnit.AddMembers(newNamespace);
             return compilationUnit.NormalizeWhitespace();
@@ -101,45 +148,48 @@ namespace ClassGenerator.CodeRefactorings
 
         private async Task<INamedTypeSymbol> FindExistingClassAsync(Solution solution, string className, CancellationToken cancellationToken)
         {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+            if (solution == null || string.IsNullOrWhiteSpace(className))
+                return null;
 
-            if (solution != null && !string.IsNullOrWhiteSpace(className))
+            foreach (var projectId in solution.ProjectIds)
             {
-                foreach (var project in solution.Projects)
-                {
-                    cancellationToken.ThrowIfCancellationRequested();
+                cancellationToken.ThrowIfCancellationRequested();
 
-                    foreach (var document in project.Documents)
-                    {
-                        cancellationToken.ThrowIfCancellationRequested();
+                var project = solution.GetProject(projectId);
+                var compilation = await project.GetCompilationAsync();
 
-                        var semanticModel = await document.GetSemanticModelAsync();
-                        var syntaxRoot = await document.GetSyntaxRootAsync();
-                        foreach (var classDeclaration in syntaxRoot.DescendantNodes().OfType<ClassDeclarationSyntax>())
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
+                var matchingType = compilation.GetSymbolsWithName(className).OfType<INamedTypeSymbol>().FirstOrDefault();
 
-                            var declaredSymbol = semanticModel.GetDeclaredSymbol(classDeclaration);
-                            if (declaredSymbol?.Name == className)
-                            {
-                                if (declaredSymbol.ContainingNamespace.ToDisplayString() != document.Project.DefaultNamespace)
-                                {
-                                    return declaredSymbol;
-                                }
-                            }
-                        }
-                    }
-                }
+                if (matchingType != null)
+                    return matchingType;
             }
 
-            return default;
+            return null;
         }
 
-        private class DocumentContext
+        private static string GetServiceName(string currentNamespace)
         {
-            public string FileName { get; set; }
-            public string[] Folder { get; set; }
-            public CompilationUnitSyntax Syntax { get; set; }
+            foreach (Match m in Regex.Matches(currentNamespace, NAMESPACE_PATTERN, RegexOptions.Singleline | RegexOptions.IgnoreCase))
+            {
+                return m.Groups["service"].Value;
+            }
+
+            return string.Empty;
+        }
+
+        private async Task<string> GetFirstOrDefaultNamespaceAsync(Document document, TextSpan span, CancellationToken cancellationToken)
+        {
+            var syntaxRoot = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
+            var classDeclarationSyntax = syntaxRoot.DescendantNodes(span).OfType<ClassDeclarationSyntax>().FirstOrDefault();
+
+            if (classDeclarationSyntax != null)
+            {
+                var semanticModel = await document.GetSemanticModelAsync();
+                var declaredSymbol = semanticModel.GetDeclaredSymbol(classDeclarationSyntax);
+                return declaredSymbol.ContainingNamespace.ToDisplayString();
+            }
+
+            return string.Empty;
         }
     }
 }
