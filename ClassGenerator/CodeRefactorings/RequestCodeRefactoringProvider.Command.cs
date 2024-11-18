@@ -18,7 +18,7 @@ namespace ClassGenerator.CodeRefactorings
         private const string PROJECT_COMMAND = "Aurora.{0}.Domain";
         private const string PROJECT_COMMAND_HANDLER = "Aurora.{0}.ApplicationService";
         private const string NAMESPACE_COMMAND = "Aurora.{0}.Domain.Commands";
-        private const string DEFAULT_NAMESPACE_COMMAND_HANDLER = "Aurora.{0}.ApplicationService.Commands";
+        private const string NAMESPACE_COMMAND_HANDLER = "Aurora.{0}.ApplicationService.Commands";
         private readonly string[] COMMAND_FOLDERS = new[] { "Commands" };
 
         private readonly string[] USINGS_COMMAND = new[] {
@@ -47,7 +47,7 @@ namespace ClassGenerator.CodeRefactorings
             // Create Handler
             var commandHandlerClassName = commandClassName.Replace(COMMAND_SUFFIX, COMMAND_HANDLER_SUFFIX);
             var commandHandlerUsings = USINGS_COMMAND_HANDLER.Select(u => u.Format(serviceName)).ToArray();
-            var commandHandlerNamespace = DEFAULT_NAMESPACE_COMMAND_HANDLER.Format(serviceName);
+            var commandHandlerNamespace = NAMESPACE_COMMAND_HANDLER.Format(serviceName);
             var commandHandlerProject = PROJECT_COMMAND_HANDLER.Format(serviceName);
             var commandHandlerSyntax = GenerateCommandHandlerClassSyntax(commandClassName, commandHandlerClassName, commandHandlerNamespace, commandHandlerUsings);
 
