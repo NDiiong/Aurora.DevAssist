@@ -50,9 +50,11 @@
     <Compile Include="CodeAnalysis\ITypeSymbolExtensions.cs" />
     <Compile Include="CodeAnalysis\SemanticModelExtensions.cs" />
     <Compile Include="CodeAnalysis\StringExtensions.cs" />
+    <Compile Include="CodeRefactorings\RequestCodeRefactoringProvider.Command.cs" />
     <Compile Include="CodeRefactorings\RequestCodeRefactoringProvider.cs" />
     <Compile Include="CodeAnalysis\SyntaxNodeExtensions.cs" />
     <Compile Include="CodeAnalysis\SyntaxFactoryEx.cs" />
+    <Compile Include="CodeRefactorings\RequestCodeRefactoringProvider.Query.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="ClassGeneratorPackage.cs" />
   </ItemGroup>

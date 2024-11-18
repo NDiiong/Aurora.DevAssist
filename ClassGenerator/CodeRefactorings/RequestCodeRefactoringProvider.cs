@@ -1,11 +1,11 @@
-﻿using ClassGenerator.CodeAnalysis;
-using Microsoft.CodeAnalysis;
+﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.VisualStudio.Shell;
+using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.Composition;
 using System.Linq;
@@ -16,31 +16,9 @@ using System.Threading.Tasks;
 namespace ClassGenerator.CodeRefactorings
 {
     [ExportCodeRefactoringProvider(LanguageNames.CSharp, Name = nameof(RequestCodeRefactoringProvider)), Shared]
-    public class RequestCodeRefactoringProvider : CodeRefactoringProvider
+    public partial class RequestCodeRefactoringProvider : CodeRefactoringProvider
     {
         private const string NAMESPACE_PATTERN = @"Aurora\.(?'service'\w+)";
-
-        private const string INTERFACE_QUERY = "IQuery";
-        private const string INTERFACE_COMMANDS = "ICommand";
-
-        private const string DEFAULT_PROJECT_DOMAIN = "Aurora.{0}.Domain";
-
-        private const string DEFAULT_NAMESPACE_QUERY = "Aurora.{0}.Domain.Queries";
-        private readonly string[] FOLDER_QUERY = new[] { "Queries" };
-        private readonly string[] USINGS_QUERY = new[] { "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Queries", };
-
-        private const string DEFAULT_NAMESPACE_COMMAND = "Aurora.{0}.Domain.Commands";
-        private readonly string[] FOLDER_COMMAND = new[] { "Commands" };
-        private readonly string[] USINGS_COMMAND = new[] { "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Commands", };
-
-        private const string DEFAULT_NAMESPACE_QUERY_HANDLER = "Aurora.{0}.Queries";
-        private const string CLASS_NAME_HANDLER = "{0}Handler";
-        private readonly string[] FOLDER_QUERY_HANDLER = new[] { "Queries" };
-        private readonly string[] USINGS_QUERY_HANDLER = new[] { "Aurora.{0}.Domain.Queries", "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Queries", };
-
-        private const string DEFAULT_NAMESPACE_COMMAND_HANDLER = "Aurora.{0}.{1}.Commands";
-        private readonly string[] FOLDER_COMMAND_HANDLER = new[] { "Commands" };
-        private readonly string[] USINGS_COMMAND_HANDLER = new[] { "Aurora.{0}.Domain.Commands", "Aurora.{0}.Domain.Dtos", "Travel2Pay.Cqrs.Commands", };
 
         public override async Task ComputeRefactoringsAsync(CodeRefactoringContext context)
         {
@@ -51,133 +29,44 @@ namespace ClassGenerator.CodeRefactorings
             var syntaxRoot = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
             var node = syntaxRoot.FindNode(context.Span);
 
-            if (node is IdentifierNameSyntax identifierSyntax)
+            if (node is IdentifierNameSyntax identifierSyntax && node.Parent is ObjectCreationExpressionSyntax objectCreationSyntax)
             {
-                var @namespace = await GetFirstOrDefaultNamespaceAsync(document, node.Span, cancellationToken);
-                if (string.IsNullOrEmpty(@namespace))
+                var classNameTyping = identifierSyntax.Identifier.Text;
+
+                var solution = document?.Project?.Solution;
+                if (string.IsNullOrEmpty(classNameTyping) || solution == null)
                     return;
 
-                var serviceName = GetServiceName(@namespace);
-
-                if (string.IsNullOrEmpty(serviceName))
-                    return;
-
-                var className = identifierSyntax?.Identifier.Text;
-                if (node.Parent is ObjectCreationExpressionSyntax objectCreationSyntax)
+                if (classNameTyping.EndsWith(COMMAND_SUFFIX) || classNameTyping.EndsWith(QUERY_SUFFIX))
                 {
-                    var solution = document?.Project?.Solution;
-
-                    var existingClass = await FindExistingClassAsync(solution, className, cancellationToken);
+                    var existingClass = await FindExistingClassAsync(solution, classNameTyping, cancellationToken);
                     if (existingClass != null)
                         return;
 
-                    var query = CodeAction.Create("Create IQuery", cancellation => CreateQueryClassAsync(document, serviceName, className, cancellation));
-                    var command = CodeAction.Create("Create ICommand", cancellation => CreateCommandClassAsync(document, serviceName, className, cancellation));
-                    var group = CodeAction.Create("Aurora", ImmutableArray.Create(new[] { query, command }), false);
-                    context.RegisterRefactoring(group);
-                }
-                else if (node.Parent is TypeArgumentListSyntax typeArgumentListSyntax)
-                {
-                    var queryHandler = CodeAction.Create("Create QueryHandler", cancellation => CreateQueryHandlerClassAsync(typeArgumentListSyntax, document, serviceName, className, cancellation));
+                    var @namespace = await GetNamespaceAsync(document, node.Span, cancellationToken);
+                    var serviceName = GetServiceName(@namespace);
 
-                    var group = CodeAction.Create("Aurora", ImmutableArray.Create(new[] { queryHandler }), false);
+                    if (string.IsNullOrEmpty(serviceName))
+                        return;
+
+                    var codeActions = new List<CodeAction>();
+                    if (classNameTyping.EndsWith(COMMAND_SUFFIX))
+                    {
+                        var commandAction = CodeAction.Create($"Create Command and Handler", cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation));
+                        //context.RegisterRefactoring(commandAction);
+                        codeActions.Add(commandAction);
+                    }
+                    else if (classNameTyping.EndsWith(QUERY_SUFFIX))
+                    {
+                        var queryAction = CodeAction.Create($"Create Query and Handler", cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation));
+                        //context.RegisterRefactoring(commandAction);
+                        codeActions.Add(queryAction);
+                    }
+
+                    var group = CodeAction.Create("Aurora", ImmutableArray.Create(codeActions.ToArray()), isInlinable: false);
                     context.RegisterRefactoring(group);
                 }
             }
-        }
-
-        private async Task<Solution> CreateQueryHandlerClassAsync(TypeArgumentListSyntax typeArgumentListSyntax, Document document, string serviceName, string className, CancellationToken cancellationToken)
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            var queryNameSyntax = typeArgumentListSyntax.Arguments.FirstOrDefault(x => x is IdentifierNameSyntax);
-            var genericNameSyntax = typeArgumentListSyntax.Arguments.FirstOrDefault(x => x is GenericNameSyntax);
-
-            if (queryNameSyntax != null && genericNameSyntax != null)
-            {
-                var @using = USINGS_COMMAND.Format(serviceName);
-                var @namespace = DEFAULT_NAMESPACE_COMMAND.Format(serviceName);
-                var @project = DEFAULT_PROJECT_DOMAIN.Format(document.Project.Name);
-                var @class = CLASS_NAME_HANDLER.Format(className);
-
-                var queryName = queryNameSyntax.ToString();
-                var returnType = genericNameSyntax.ToString();
-
-                var syntax = GenerateHanlerClassSyntax(queryName, returnType);
-
-                cancellationToken.ThrowIfCancellationRequested();
-                return await AddDocumentAsync(document.Project.Solution, @project, @class, FOLDER_QUERY_HANDLER, syntax);
-            }
-
-            return document.Project.Solution;
-        }
-
-        //private async Task<Solution> CreateCommandHandlerClassAsync(Document document, string serviceName, string className, CancellationToken cancellation)
-        //{
-        //    await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-        //}
-
-        private CompilationUnitSyntax GenerateHanlerClassSyntax(string @query, string @return)
-        {
-            var compilationUnit = SyntaxFactory.CompilationUnit();
-            compilationUnit = compilationUnit.AddUsings(DEFAULT_NAMESPACE_QUERY_HANDLER, USINGS_QUERY_HANDLER);
-
-            var newNamespace = SyntaxFactoryEx.NamespaceDeclaration(DEFAULT_NAMESPACE_QUERY_HANDLER);
-            var classDeclaration = SyntaxFactoryEx.PublicClassDeclaration(@query);
-
-            classDeclaration = classDeclaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(
-                SyntaxFactory.GenericName(
-                    SyntaxFactory.Identifier("QueryHandler"))
-                    .WithTypeArgumentList(
-                        SyntaxFactory.TypeArgumentList()
-                            .AddArguments(
-                                SyntaxFactory.IdentifierName(@query),
-                                SyntaxFactory.IdentifierName(@return)))));
-
-            newNamespace = newNamespace.AddMembers(classDeclaration);
-            compilationUnit = compilationUnit.AddMembers(newNamespace);
-            return compilationUnit.NormalizeWhitespace();
-        }
-
-        private async Task<Solution> CreateCommandClassAsync(Document document, string serviceName, string @class, CancellationToken cancellationToken)
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            var @using = USINGS_COMMAND.Format(serviceName);
-            var @namespace = DEFAULT_NAMESPACE_COMMAND.Format(serviceName);
-            var @project = DEFAULT_PROJECT_DOMAIN.Format(serviceName);
-
-            var syntax = GenerateQueryClassSyntax(@class, @namespace, INTERFACE_COMMANDS, @using);
-
-            cancellationToken.ThrowIfCancellationRequested();
-            return await AddDocumentAsync(document.Project.Solution, @project, @class, FOLDER_COMMAND, syntax);
-        }
-
-        private async Task<Solution> CreateQueryClassAsync(Document document, string serviceName, string @class, CancellationToken cancellationToken)
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            var @using = USINGS_QUERY.Format(serviceName);
-            var @namespace = DEFAULT_NAMESPACE_QUERY.Format(serviceName);
-            var @project = DEFAULT_PROJECT_DOMAIN.Format(serviceName);
-
-            var syntax = GenerateQueryClassSyntax(@class, @namespace, INTERFACE_QUERY, @using);
-
-            cancellationToken.ThrowIfCancellationRequested();
-            return await AddDocumentAsync(document.Project.Solution, @project, @class, FOLDER_QUERY, syntax);
-        }
-
-        private static CompilationUnitSyntax GenerateQueryClassSyntax(string @class, string @namespace, string @interface, params string[] usings)
-        {
-            var compilationUnit = SyntaxFactory.CompilationUnit();
-            compilationUnit = compilationUnit.AddUsings(@namespace, usings);
-
-            var newNamespace = SyntaxFactoryEx.NamespaceDeclaration(@namespace);
-            var classDeclaration = SyntaxFactoryEx.PublicClassDeclaration(@class);
-            classDeclaration = classDeclaration.AddBaseListTypes(SyntaxFactory.SimpleBaseType(SyntaxFactory.IdentifierName(@interface)));
-            newNamespace = newNamespace.AddMembers(classDeclaration);
-            compilationUnit = compilationUnit.AddMembers(newNamespace);
-            return compilationUnit.NormalizeWhitespace();
         }
 
         private async Task<Solution> AddDocumentAsync(Solution solution, string projectName, string fileName, string[] folder, CompilationUnitSyntax syntax)
@@ -227,7 +116,7 @@ namespace ClassGenerator.CodeRefactorings
             return string.Empty;
         }
 
-        private async Task<string> GetFirstOrDefaultNamespaceAsync(Document document, TextSpan span, CancellationToken cancellationToken)
+        private async Task<string> GetNamespaceAsync(Document document, TextSpan span, CancellationToken cancellationToken)
         {
             var syntaxRoot = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
             var classDeclarationSyntax = syntaxRoot.DescendantNodes(span).OfType<ClassDeclarationSyntax>().FirstOrDefault();

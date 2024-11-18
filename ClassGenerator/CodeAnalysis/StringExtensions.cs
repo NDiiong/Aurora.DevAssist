@@ -16,7 +16,7 @@ namespace ClassGenerator.CodeAnalysis
             return false;
         }
 
-        public static string Format(this string text, string value)
+        public static string Format(this string text, params string[] value)
         {
             return string.Format(text, value);
         }
