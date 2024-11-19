@@ -1,7 +1,6 @@
 ﻿using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 
 namespace ClassGenerator.CodeAnalysis
 {
@@ -12,13 +11,29 @@ namespace ClassGenerator.CodeAnalysis
             context.RegisterRefactoring(codeAction);
         }
 
-        public static void AddCodeActions(this CodeRefactoringContext context, string groupName, List<CodeAction> codeActions)
+        public static void AddCodeActions(this CodeRefactoringContext context, List<CodeAction> codeActions)
         {
-            if (codeActions.Count > 0)
+            if (codeActions != null && codeActions.Count > 0)
             {
-                var group = CodeAction.Create(groupName, ImmutableArray.Create(codeActions.ToArray()), isInlinable: false);
-                context.RegisterRefactoring(group);
+                for (var i = 0; i < codeActions.Count; i++)
+                {
+                    context.RegisterRefactoring(codeActions[i]);
+                }
             }
+        }
+
+        public static void AddCodeActions(this CodeRefactoringContext context, CodeAction[] codeActions)
+        {
+            for (var i = 0; i < codeActions.Length; i++)
+            {
+                context.RegisterRefactoring(codeActions[i]);
+            }
+
+            //if (codeActions.Length > 0)
+            //{
+            //    var group = CodeAction.Create(groupName, ImmutableArray.Create(codeActions), isInlinable: true);
+            //    context.RegisterRefactoring(group);
+            //}
         }
     }
 }

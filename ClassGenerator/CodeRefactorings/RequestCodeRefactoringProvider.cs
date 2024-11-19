@@ -19,6 +19,7 @@ namespace ClassGenerator.CodeRefactorings
     public partial class RequestCodeRefactoringProvider : CodeRefactoringProvider
     {
         private const string NAMESPACE_PATTERN = @"Aurora\.(?'service'\w+)";
+        private const string DESCRIPTION = "Aurora: Create Command and Handler";
 
         public override async Task ComputeRefactoringsAsync(CodeRefactoringContext context)
         {
@@ -29,6 +30,7 @@ namespace ClassGenerator.CodeRefactorings
             var syntaxRoot = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
             var node = syntaxRoot.FindNode(context.Span);
 
+            // WHEN THE MOUSE POINTER FOCUSES ON THE NEW COMMAND
             if (node is IdentifierNameSyntax identifierSyntax && node.Parent is ObjectCreationExpressionSyntax objectCreationSyntax)
             {
                 var classNameTyping = identifierSyntax.Identifier.Text;
@@ -52,54 +54,76 @@ namespace ClassGenerator.CodeRefactorings
                     var codeActions = new List<CodeAction>();
                     if (classNameTyping.EndsWith(COMMAND_SUFFIX))
                     {
-                        var commandAction = CodeAction.Create($"Create Command and Handler",
+                        var commandAction = CodeAction.Create(DESCRIPTION,
                             cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation),
                             equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(commandAction);
                     }
                     else if (classNameTyping.EndsWith(QUERY_SUFFIX))
                     {
-                        var queryAction = CodeAction.Create($"Create Query and Handler",
+                        var queryAction = CodeAction.Create(DESCRIPTION,
                             cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation),
                             equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(queryAction);
                     }
 
-                    context.AddCodeActions("Aurora", codeActions);
+                    context.AddCodeActions(codeActions);
                 }
             }
-            else if (node is GenericNameSyntax genericName)
+            // WHEN THE MOUSE POINTER FOCUSES ON THE ARGUMENTS OF METHOD SENDCOMMAND
+            else if (node is IdentifierNameSyntax identifierName && node?.Parent?.Parent is GenericNameSyntax parentGenericNameSyntax)
             {
-                var codeActions = new List<CodeAction>();
-                if (genericName.Identifier.Text == "SendCommand" && genericName.TypeArgumentList.Arguments.Count == 2)
+                var codeActions = await SendCommandAddCodeActionAsync(parentGenericNameSyntax, document, cancellationToken);
+                context.AddCodeActions(codeActions);
+            }
+            // WHEN THE MOUSE POINTER FOCUSES ON THE METHOD SENDCOMMAND
+            else if (node is GenericNameSyntax nodeGenericNameSyntax)
+            {
+                var codeActions = await SendCommandAddCodeActionAsync(nodeGenericNameSyntax, document, cancellationToken);
+                context.AddCodeActions(codeActions);
+            }
+            // WHEN THE MOUSE POINTER FOCUSES ON THE VARIABLE DECLARATOR
+            else if (node is VariableDeclaratorSyntax variableDeclarator)
+            {
+                var invocationExpression = variableDeclarator
+                    .Ancestors().OfType<LocalDeclarationStatementSyntax>()
+                    .FirstOrDefault()?.DescendantNodes()
+                    .OfType<InvocationExpressionSyntax>().FirstOrDefault();
+
+                if (invocationExpression == null)
+                    return;
+
+                var memberAccessExpression = invocationExpression.Expression as MemberAccessExpressionSyntax;
+                if (memberAccessExpression == null)
+                    return;
+
+                if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
                 {
-                    var commandType = genericName.TypeArgumentList.Arguments[0] as IdentifierNameSyntax;
-                    var dtoType = genericName.TypeArgumentList.Arguments[1] as IdentifierNameSyntax;
-
-                    if (commandType == null || !commandType.Identifier.Text.EndsWith(COMMAND_SUFFIX))
-                        return;
-
-                    var solution = document?.Project?.Solution;
-                    if (solution == null) return;
-
-                    var @namespace = await GetNamespaceAsync(document, node.Span, cancellationToken);
-                    var serviceName = GetServiceName(@namespace);
-
-                    if (string.IsNullOrEmpty(serviceName))
-                        return;
-
-                    // Create the code action
-                    var action = CodeAction.Create(
-                        $"Create Command and Handler",
-                        cancellation => GenerateSendCommandRelatedClassesAsync(document, serviceName, commandType.Identifier.Text, dtoType?.Identifier.Text, cancellation),
-                        equivalenceKey: nameof(RequestCodeRefactoringProvider));
+                    var codeActions = await SendCommandAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                    context.AddCodeActions(codeActions);
                 }
-
-                context.AddCodeActions("Aurora", codeActions);
             }
-            else if (node is InvocationExpressionSyntax invocationSyntax)
+            // WHEN THE MOUSE POINTER FOCUSES ON THE SCOPED MEDIATOR
+            else if (node is IdentifierNameSyntax identifierName2 && node.Parent is MemberAccessExpressionSyntax parentMemberAccessExpression)
             {
-                System.Console.WriteLine();
+                if (parentMemberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
+                {
+                    var codeActions = await SendCommandAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                    context.AddCodeActions(codeActions);
+                }
+            }
+            // WHEN THE MOUSE POINTER FOCUSES ON THE AWAIT
+            else if (node is AwaitExpressionSyntax awaitExpressionSyntax && awaitExpressionSyntax.Expression is InvocationExpressionSyntax invocationExpressionSyntax)
+            {
+                var memberAccessExpression = invocationExpressionSyntax.Expression as MemberAccessExpressionSyntax;
+                if (memberAccessExpression == null)
+                    return;
+
+                if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
+                {
+                    var codeActions = await SendCommandAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                    context.AddCodeActions(codeActions);
+                }
             }
         }
 

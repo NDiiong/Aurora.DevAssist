@@ -1,5 +1,6 @@
 ﻿using ClassGenerator.CodeAnalysis;
 using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.VisualStudio.Shell;
@@ -299,6 +300,37 @@ namespace ClassGenerator.CodeRefactorings
                                                     SyntaxFactory.ParseTypeName("NotImplementedException"))
                                                     .WithArgumentList(
                                                         SyntaxFactory.ArgumentList())))))));
+        }
+
+        private async Task<CodeAction[]> SendCommandAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
+        {
+            if (genericName.Identifier.Text == "SendCommand" && genericName.TypeArgumentList.Arguments.Count == 2)
+            {
+                var commandType = genericName.TypeArgumentList.Arguments[0] as IdentifierNameSyntax;
+                var dtoType = genericName.TypeArgumentList.Arguments[1] as IdentifierNameSyntax;
+
+                if (commandType == null || !commandType.Identifier.Text.EndsWith(COMMAND_SUFFIX))
+                    return Array.Empty<CodeAction>();
+
+                var solution = document?.Project?.Solution;
+                if (solution == null)
+                    return Array.Empty<CodeAction>();
+
+                var @namespace = await GetNamespaceAsync(document, genericName.Span, cancellationToken);
+                var serviceName = GetServiceName(@namespace);
+
+                if (string.IsNullOrEmpty(serviceName))
+                    return Array.Empty<CodeAction>();
+
+                // Create the code action
+                var codeAction = CodeAction.Create(DESCRIPTION,
+                    cancellation => GenerateSendCommandRelatedClassesAsync(document, serviceName, commandType.Identifier.Text, dtoType?.Identifier.Text, cancellation),
+                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
+
+                return new[] { codeAction };
+            }
+
+            return Array.Empty<CodeAction>();
         }
     }
 }
