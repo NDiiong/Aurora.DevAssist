@@ -17,20 +17,27 @@ namespace ClassGenerator.CodeRefactorings
         private const string ABSTRACT_COMMAND_HANDLER = "CommandHandler";
         private const string COMMAND_HANDLER_SUFFIX = "CommandHandler";
 
+        // PROJECTS
         private const string PROJECT_DTO = "Aurora.{0}.Domain";
+
         private const string PROJECT_COMMAND = "Aurora.{0}.Domain";
         private const string PROJECT_COMMAND_HANDLER = "Aurora.{0}.ApplicationService";
         private const string PROJECT_COMMAND_HANDLER_WITH_RESULT = "Aurora.{0}.ApplicationService";
 
+        // NAMSPACES
         private const string NAMESPACE_DTO = "Aurora.{0}.Domain.Dtos";
+
         private const string NAMESPACE_COMMAND = "Aurora.{0}.Domain.Commands";
         private const string NAMESPACE_COMMAND_HANDLER = "Aurora.{0}.ApplicationService.Commands";
         private const string NAMESPACE_COMMAND_HANDLER_WITH_RESULT = "Aurora.{0}.ApplicationService.Commands";
 
+        // FOLDES
         private readonly string[] COMMAND_HANDLER_FOLDERS = new[] { "Commands" };
+
         private readonly string[] COMMAND_HANDLER_WITH_RESULT_FOLDERS = new[] { "Commands" };
         private readonly string[] DTO_FOLDERS = new[] { "Dtos" };
 
+        // USINGS
         private readonly string[] USINGS_COMMAND = new[] {
             "Aurora.{0}.Domain.Dtos",
             "Travel2Pay.Cqrs.Commands",
