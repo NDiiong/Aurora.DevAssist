@@ -3,6 +3,7 @@ using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.VisualStudio.Shell;
+using System;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -15,11 +16,20 @@ namespace ClassGenerator.CodeRefactorings
         private const string INTERFACE_COMMAND = "ICommand";
         private const string ABSTRACT_COMMAND_HANDLER = "CommandHandler";
         private const string COMMAND_HANDLER_SUFFIX = "CommandHandler";
+
+        private const string PROJECT_DTO = "Aurora.{0}.Domain";
         private const string PROJECT_COMMAND = "Aurora.{0}.Domain";
         private const string PROJECT_COMMAND_HANDLER = "Aurora.{0}.ApplicationService";
+        private const string PROJECT_COMMAND_HANDLER_WITH_RESULT = "Aurora.{0}.ApplicationService";
+
+        private const string NAMESPACE_DTO = "Aurora.{0}.Domain.Dtos";
         private const string NAMESPACE_COMMAND = "Aurora.{0}.Domain.Commands";
         private const string NAMESPACE_COMMAND_HANDLER = "Aurora.{0}.ApplicationService.Commands";
-        private readonly string[] COMMAND_FOLDERS = new[] { "Commands" };
+        private const string NAMESPACE_COMMAND_HANDLER_WITH_RESULT = "Aurora.{0}.ApplicationService.Commands";
+
+        private readonly string[] COMMAND_HANDLER_FOLDERS = new[] { "Commands" };
+        private readonly string[] COMMAND_HANDLER_WITH_RESULT_FOLDERS = new[] { "Commands" };
+        private readonly string[] DTO_FOLDERS = new[] { "Dtos" };
 
         private readonly string[] USINGS_COMMAND = new[] {
             "Aurora.{0}.Domain.Dtos",
@@ -30,6 +40,14 @@ namespace ClassGenerator.CodeRefactorings
             "Aurora.{0}.Domain.Commands",
             "Travel2Pay.Cqrs.Commands"
         };
+
+        private readonly string[] USINGS_COMMAND_HANDLER_WITH_RESULT = new[] {
+            "Aurora.{0}.Domain.Commands",
+            "Aurora.Invoice.Domain.Dtos",
+            "Travel2Pay.Cqrs.Commands",
+        };
+
+        private readonly string[] USINGS_DTO = Array.Empty<string>();
 
         private async Task<Solution> CreateCommandWithHandlerAsync(Document document, string serviceName, string classNameTyping, CancellationToken cancellation)
         {
@@ -51,8 +69,8 @@ namespace ClassGenerator.CodeRefactorings
             var commandHandlerProject = PROJECT_COMMAND_HANDLER.Format(serviceName);
             var commandHandlerSyntax = GenerateCommandHandlerClassSyntax(commandClassName, commandHandlerClassName, commandHandlerNamespace, commandHandlerUsings);
 
-            solution = await AddDocumentAsync(solution, commandProject, commandClassName, COMMAND_FOLDERS, commandSyntax);
-            solution = await AddDocumentAsync(solution, commandHandlerProject, commandHandlerClassName, COMMAND_FOLDERS, commandHandlerSyntax);
+            solution = await AddDocumentAsync(solution, commandProject, commandClassName, COMMAND_HANDLER_FOLDERS, commandSyntax);
+            solution = await AddDocumentAsync(solution, commandHandlerProject, commandHandlerClassName, COMMAND_HANDLER_FOLDERS, commandHandlerSyntax);
 
             return solution;
         }
@@ -187,6 +205,93 @@ namespace ClassGenerator.CodeRefactorings
             compilationUnit = compilationUnit.AddMembers(namespaceDeclaration);
 
             return compilationUnit.NormalizeWhitespace();
+        }
+
+        private async Task<Solution> GenerateSendCommandRelatedClassesAsync(Document document, string serviceName, string classNameTyping, string dtoTyping, CancellationToken c)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            var solution = document.Project.Solution;
+
+            // Create Command
+            var commandClassName = classNameTyping;
+            var commandUsings = USINGS_COMMAND.Select(u => u.Format(serviceName)).ToArray();
+            var commandNamespace = NAMESPACE_COMMAND.Format(serviceName);
+            var commandProject = PROJECT_COMMAND.Format(serviceName);
+            var commandSyntax = GenerateCommandClassSyntax(commandClassName, commandNamespace, commandUsings);
+
+            // Generate DTO class
+            var dtoName = dtoTyping;
+            var dtoUsings = USINGS_DTO.Select(u => u.Format(serviceName)).ToArray();
+            var dtoNamespace = NAMESPACE_DTO.Format(serviceName);
+            var dtoProject = PROJECT_DTO.Format(serviceName);
+            var dtoSyntax = GenerateDtoClass(dtoName, dtoNamespace, dtoUsings);
+
+            // Generate Handler class
+            var commandHandlerClassName = commandClassName.Replace(COMMAND_SUFFIX, COMMAND_HANDLER_SUFFIX);
+            var handlerUsings = USINGS_COMMAND_HANDLER_WITH_RESULT.Select(u => u.Format(serviceName)).ToArray();
+            var handlerNamespace = NAMESPACE_COMMAND_HANDLER_WITH_RESULT.Format(serviceName);
+            var handlerProject = PROJECT_COMMAND_HANDLER_WITH_RESULT.Format(serviceName);
+            var handlerSyntax = GenerateCommandHandlerWithResultClass(commandClassName, commandHandlerClassName, dtoName, handlerNamespace, handlerUsings);
+
+            solution = await AddDocumentAsync(solution, commandProject, commandClassName, COMMAND_HANDLER_FOLDERS, commandSyntax);
+            solution = await AddDocumentAsync(solution, dtoProject, dtoName, DTO_FOLDERS, dtoSyntax);
+            solution = await AddDocumentAsync(solution, handlerProject, commandHandlerClassName, COMMAND_HANDLER_WITH_RESULT_FOLDERS, handlerSyntax);
+
+            return solution;
+        }
+
+        private CompilationUnitSyntax GenerateDtoClass(string dtoName, string @namespace, string[] usings)
+        {
+            return SyntaxFactory.CompilationUnit()
+                .AddUsings(@namespace, usings)
+                .AddMembers(
+                    SyntaxFactory.NamespaceDeclaration(
+                        SyntaxFactory.ParseName(@namespace))
+                    .AddMembers(
+                        SyntaxFactory.ClassDeclaration(dtoName)
+                            .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))));
+        }
+
+        private CompilationUnitSyntax GenerateCommandHandlerWithResultClass(string commandName, string commandHandlerClassName, string dtoName, string @namespace, string[] usings)
+        {
+            return SyntaxFactory.CompilationUnit()
+                .AddUsings(@namespace, usings)
+                .AddMembers(
+                    SyntaxFactory.NamespaceDeclaration(
+                        SyntaxFactory.ParseName(@namespace))
+                    .AddMembers(
+                        SyntaxFactory.ClassDeclaration(commandHandlerClassName)
+                            .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                            .AddBaseListTypes(
+                                SyntaxFactory.SimpleBaseType(
+                                    SyntaxFactory.ParseTypeName($"{ABSTRACT_COMMAND_HANDLER}<{commandName}, {dtoName}>")))
+                            .AddMembers(
+                                SyntaxFactory.MethodDeclaration(
+                                    SyntaxFactory.ParseTypeName($"Task<{dtoName}>"),
+                                    "HandleAsync")
+                                    .AddModifiers(
+                                        SyntaxFactory.Token(SyntaxKind.ProtectedKeyword),
+                                        SyntaxFactory.Token(SyntaxKind.OverrideKeyword),
+                                        SyntaxFactory.Token(SyntaxKind.AsyncKeyword))
+                                    .AddParameterListParameters(
+                                        SyntaxFactory.Parameter(
+                                            SyntaxFactory.Identifier("command"))
+                                            .WithType(SyntaxFactory.ParseTypeName(commandName)),
+                                        SyntaxFactory.Parameter(
+                                            SyntaxFactory.Identifier("token"))
+                                            .WithType(SyntaxFactory.ParseTypeName("CancellationToken"))
+                                            .WithDefault(
+                                                SyntaxFactory.EqualsValueClause(
+                                                    SyntaxFactory.LiteralExpression(
+                                                        SyntaxKind.DefaultLiteralExpression))))
+                                    .WithBody(
+                                        SyntaxFactory.Block(
+                                            SyntaxFactory.ThrowStatement(
+                                                SyntaxFactory.ObjectCreationExpression(
+                                                    SyntaxFactory.ParseTypeName("NotImplementedException"))
+                                                    .WithArgumentList(
+                                                        SyntaxFactory.ArgumentList())))))));
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿using Microsoft.CodeAnalysis;
+﻿using ClassGenerator.CodeAnalysis;
+using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
 using Microsoft.CodeAnalysis.CSharp;
@@ -6,7 +7,6 @@ using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.VisualStudio.Shell;
 using System.Collections.Generic;
-using System.Collections.Immutable;
 using System.Composition;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -52,20 +52,54 @@ namespace ClassGenerator.CodeRefactorings
                     var codeActions = new List<CodeAction>();
                     if (classNameTyping.EndsWith(COMMAND_SUFFIX))
                     {
-                        var commandAction = CodeAction.Create($"Create Command and Handler", cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation));
-                        //context.RegisterRefactoring(commandAction);
+                        var commandAction = CodeAction.Create($"Create Command and Handler",
+                            cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation),
+                            equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(commandAction);
                     }
                     else if (classNameTyping.EndsWith(QUERY_SUFFIX))
                     {
-                        var queryAction = CodeAction.Create($"Create Query and Handler", cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation));
-                        //context.RegisterRefactoring(commandAction);
+                        var queryAction = CodeAction.Create($"Create Query and Handler",
+                            cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation),
+                            equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(queryAction);
                     }
 
-                    var group = CodeAction.Create("Aurora", ImmutableArray.Create(codeActions.ToArray()), isInlinable: false);
-                    context.RegisterRefactoring(group);
+                    context.AddCodeActions("Aurora", codeActions);
                 }
+            }
+            else if (node is GenericNameSyntax genericName)
+            {
+                var codeActions = new List<CodeAction>();
+                if (genericName.Identifier.Text == "SendCommand" && genericName.TypeArgumentList.Arguments.Count == 2)
+                {
+                    var commandType = genericName.TypeArgumentList.Arguments[0] as IdentifierNameSyntax;
+                    var dtoType = genericName.TypeArgumentList.Arguments[1] as IdentifierNameSyntax;
+
+                    if (commandType == null || !commandType.Identifier.Text.EndsWith(COMMAND_SUFFIX))
+                        return;
+
+                    var solution = document?.Project?.Solution;
+                    if (solution == null) return;
+
+                    var @namespace = await GetNamespaceAsync(document, node.Span, cancellationToken);
+                    var serviceName = GetServiceName(@namespace);
+
+                    if (string.IsNullOrEmpty(serviceName))
+                        return;
+
+                    // Create the code action
+                    var action = CodeAction.Create(
+                        $"Create Command and Handler",
+                        cancellation => GenerateSendCommandRelatedClassesAsync(document, serviceName, commandType.Identifier.Text, dtoType?.Identifier.Text, cancellation),
+                        equivalenceKey: nameof(RequestCodeRefactoringProvider));
+                }
+
+                context.AddCodeActions("Aurora", codeActions);
+            }
+            else if (node is InvocationExpressionSyntax invocationSyntax)
+            {
+                System.Console.WriteLine();
             }
         }
 
