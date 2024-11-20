@@ -6,6 +6,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Text;
 using Microsoft.VisualStudio.Shell;
+using System;
 using System.Collections.Generic;
 using System.Composition;
 using System.Linq;
@@ -19,7 +20,6 @@ namespace ClassGenerator.CodeRefactorings
     public partial class RequestCodeRefactoringProvider : CodeRefactoringProvider
     {
         private const string NAMESPACE_PATTERN = @"Aurora\.(?'service'\w+)";
-        private const string DESCRIPTION = "Aurora: Create Command and Handler";
 
         public override async Task ComputeRefactoringsAsync(CodeRefactoringContext context)
         {
@@ -54,15 +54,15 @@ namespace ClassGenerator.CodeRefactorings
                     var codeActions = new List<CodeAction>();
                     if (classNameTyping.EndsWith(COMMAND_SUFFIX))
                     {
-                        var commandAction = CodeAction.Create(DESCRIPTION,
-                            cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation),
+                        var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
+                            cancellation => CreateCommandWithHandlerWithoutResultAsync(document, serviceName, classNameTyping, cancellation),
                             equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(commandAction);
                     }
                     else if (classNameTyping.EndsWith(QUERY_SUFFIX))
                     {
-                        var queryAction = CodeAction.Create(DESCRIPTION,
-                            cancellation => CreateCommandWithHandlerAsync(document, serviceName, classNameTyping, cancellation),
+                        var queryAction = CodeAction.Create(COMMAND_DESCRIPTION,
+                            cancellation => CreateQueryWithHandlerWithoutResultAsync(document, serviceName, classNameTyping, cancellation),
                             equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(queryAction);
                     }
@@ -73,13 +73,13 @@ namespace ClassGenerator.CodeRefactorings
             // WHEN THE MOUSE POINTER FOCUSES ON THE ARGUMENTS OF METHOD SENDCOMMAND
             else if (node is IdentifierNameSyntax identifierName && node?.Parent?.Parent is GenericNameSyntax parentGenericNameSyntax)
             {
-                var codeActions = await SendCommandAddCodeActionAsync(parentGenericNameSyntax, document, cancellationToken);
+                var codeActions = await DetectSendCommandQueryAddCodeActionAsync(parentGenericNameSyntax, document, cancellationToken);
                 context.AddCodeActions(codeActions);
             }
             // WHEN THE MOUSE POINTER FOCUSES ON THE METHOD SENDCOMMAND
             else if (node is GenericNameSyntax nodeGenericNameSyntax)
             {
-                var codeActions = await SendCommandAddCodeActionAsync(nodeGenericNameSyntax, document, cancellationToken);
+                var codeActions = await DetectSendCommandQueryAddCodeActionAsync(nodeGenericNameSyntax, document, cancellationToken);
                 context.AddCodeActions(codeActions);
             }
             // WHEN THE MOUSE POINTER FOCUSES ON THE VARIABLE DECLARATOR
@@ -99,7 +99,7 @@ namespace ClassGenerator.CodeRefactorings
 
                 if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
                 {
-                    var codeActions = await SendCommandAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                    var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
                     context.AddCodeActions(codeActions);
                 }
             }
@@ -108,7 +108,7 @@ namespace ClassGenerator.CodeRefactorings
             {
                 if (parentMemberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
                 {
-                    var codeActions = await SendCommandAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                    var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
                     context.AddCodeActions(codeActions);
                 }
             }
@@ -121,10 +121,20 @@ namespace ClassGenerator.CodeRefactorings
 
                 if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
                 {
-                    var codeActions = await SendCommandAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                    var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
                     context.AddCodeActions(codeActions);
                 }
             }
+        }
+
+        private async Task<CodeAction[]> DetectSendCommandQueryAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
+        {
+            if (genericName.Identifier.Text == "SendCommand" && genericName.TypeArgumentList.Arguments.Count == 2)
+                return await SendCommandAddCodeActionAsync(genericName, document, cancellationToken);
+            else if (genericName.Identifier.Text == "SendQuery" && genericName.TypeArgumentList.Arguments.Count == 2)
+                return await SendQueryAddCodeActionAsync(genericName, document, cancellationToken);
+
+            return Array.Empty<CodeAction>();
         }
 
         private async Task<Solution> AddDocumentAsync(Solution solution, string projectName, string fileName, string[] folder, CompilationUnitSyntax syntax)
@@ -187,6 +197,57 @@ namespace ClassGenerator.CodeRefactorings
             }
 
             return string.Empty;
+        }
+
+        private CompilationUnitSyntax GenerateICommand_IQueryClassSyntax(string @interface, string className, string @namespace, string[] usings)
+        {
+            var compilationUnit = SyntaxFactory.CompilationUnit();
+
+            // Add usings
+            foreach (var usingNamespace in usings)
+            {
+                compilationUnit = compilationUnit.AddUsings(
+                    SyntaxFactory.UsingDirective(SyntaxFactory.ParseName(usingNamespace))
+                );
+            }
+
+            // Create namespace
+            var namespaceDeclaration = SyntaxFactory.NamespaceDeclaration(
+                SyntaxFactory.ParseName(@namespace)
+            );
+
+            // Create class declaration
+            var classDeclaration = SyntaxFactory.ClassDeclaration(className)
+                .WithModifiers(
+                    SyntaxFactory.TokenList(
+                        SyntaxFactory.Token(SyntaxKind.PublicKeyword)
+                    )
+                )
+                .AddBaseListTypes(
+                    SyntaxFactory.SimpleBaseType(
+                        SyntaxFactory.IdentifierName(@interface)
+                    )
+                );
+
+            // Add class to namespace
+            namespaceDeclaration = namespaceDeclaration.AddMembers(classDeclaration);
+
+            // Add namespace to compilation unit
+            compilationUnit = compilationUnit.AddMembers(namespaceDeclaration);
+
+            return compilationUnit.NormalizeWhitespace();
+        }
+
+        private CompilationUnitSyntax GenerateDtoClass(string dtoName, string @namespace, string[] usings)
+        {
+            return SyntaxFactory.CompilationUnit()
+                .AddUsings(@namespace, usings)
+                .AddMembers(
+                    SyntaxFactory.NamespaceDeclaration(
+                        SyntaxFactory.ParseName(@namespace))
+                    .AddMembers(
+                        SyntaxFactory.ClassDeclaration(dtoName)
+                            .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))));
         }
     }
 }
