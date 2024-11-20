@@ -1,4 +1,4 @@
-﻿using ClassGenerator.CodeAnalysis;
+﻿using Aurora.DevAssist.CodeAnalysis;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CodeRefactorings;
@@ -14,7 +14,7 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace ClassGenerator.CodeRefactorings
+namespace Aurora.DevAssist.CodeRefactorings
 {
     [ExportCodeRefactoringProvider(LanguageNames.CSharp, Name = nameof(RequestCodeRefactoringProvider)), Shared]
     public partial class RequestCodeRefactoringProvider : CodeRefactoringProvider

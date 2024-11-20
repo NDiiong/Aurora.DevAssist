@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 
-namespace ClassGenerator.CodeAnalysis
+namespace Aurora.DevAssist.CodeAnalysis
 {
     public static class INamedTypeSymbolExtensions
     {

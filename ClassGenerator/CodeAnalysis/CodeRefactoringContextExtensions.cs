@@ -2,7 +2,7 @@
 using Microsoft.CodeAnalysis.CodeRefactorings;
 using System.Collections.Generic;
 
-namespace ClassGenerator.CodeAnalysis
+namespace Aurora.DevAssist.CodeAnalysis
 {
     public static class CodeRefactoringContextExtensions
     {

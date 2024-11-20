@@ -2,7 +2,7 @@
 using System.Linq;
 using System.Runtime.CompilerServices;
 
-namespace ClassGenerator.CodeAnalysis
+namespace Aurora.DevAssist.CodeAnalysis
 {
     public static class ISymbolExtensions
     {

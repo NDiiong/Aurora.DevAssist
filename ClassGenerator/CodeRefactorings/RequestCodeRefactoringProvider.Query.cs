@@ -1,4 +1,4 @@
-﻿using ClassGenerator.CodeAnalysis;
+﻿using Aurora.DevAssist.CodeAnalysis;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CodeActions;
 using Microsoft.CodeAnalysis.CSharp;
@@ -9,7 +9,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace ClassGenerator.CodeRefactorings
+namespace Aurora.DevAssist.CodeRefactorings
 {
     public partial class RequestCodeRefactoringProvider
     {

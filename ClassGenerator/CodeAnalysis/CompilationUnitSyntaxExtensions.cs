@@ -3,7 +3,7 @@ using Microsoft.CodeAnalysis.CSharp;
 using Microsoft.CodeAnalysis.CSharp.Syntax;
 using System.Linq;
 
-namespace ClassGenerator.CodeAnalysis
+namespace Aurora.DevAssist.CodeAnalysis
 {
     public static class CompilationUnitSyntaxExtensions
     {

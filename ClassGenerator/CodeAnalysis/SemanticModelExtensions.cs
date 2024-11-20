@@ -2,7 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace ClassGenerator.CodeAnalysis
+namespace Aurora.DevAssist.CodeAnalysis
 {
     public static class SemanticModelExtensions
     {
