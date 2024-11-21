@@ -20,6 +20,7 @@ namespace Aurora.DevAssist.CodeRefactorings
     public partial class RequestCodeRefactoringProvider : CodeRefactoringProvider
     {
         private const string NAMESPACE_PATTERN = @"Aurora\.(?'service'\w+)";
+        private const string CSHARP_EXTENSION = ".cs";
 
         public override async Task ComputeRefactoringsAsync(CodeRefactoringContext context)
         {
@@ -145,7 +146,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                 var project = solution.Projects.FirstOrDefault(p => p.Name == projectName);
                 if (project != null)
                 {
-                    var existingDocument = project.Documents.FirstOrDefault(d => d.Name == fileName + ".cs");
+                    var existingDocument = project.Documents.FirstOrDefault(d => d.Name == fileName + CSHARP_EXTENSION);
                     if (existingDocument != null)
                         return solution;
 
