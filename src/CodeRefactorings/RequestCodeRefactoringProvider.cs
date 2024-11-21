@@ -129,9 +129,9 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private async Task<CodeAction[]> DetectSendCommandQueryAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
         {
-            if (genericName.Identifier.Text == "SendCommand" && genericName.TypeArgumentList.Arguments.Count == 2)
+            if (genericName.Identifier.Text == "SendCommand")
                 return await SendCommandAddCodeActionAsync(genericName, document, cancellationToken);
-            else if (genericName.Identifier.Text == "SendQuery" && genericName.TypeArgumentList.Arguments.Count == 2)
+            else if (genericName.Identifier.Text == "SendQuery")
                 return await SendQueryAddCodeActionAsync(genericName, document, cancellationToken);
 
             return Array.Empty<CodeAction>();

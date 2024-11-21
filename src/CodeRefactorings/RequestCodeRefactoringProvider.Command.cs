@@ -295,28 +295,34 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private async Task<CodeAction[]> SendCommandAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
         {
-            var commandType = genericName.TypeArgumentList.Arguments[0] as IdentifierNameSyntax;
-            var dtoType = genericName.TypeArgumentList.Arguments[1] as IdentifierNameSyntax;
+            if (genericName.TypeArgumentList.Arguments.Count == 1 || genericName.TypeArgumentList.Arguments.Count == 2)
+            {
+                var arguments = genericName.TypeArgumentList.Arguments;
+                var commandType = arguments[0] as IdentifierNameSyntax;
+                var dtoType = arguments.Count == 1 ? null : arguments[1] as IdentifierNameSyntax;
 
-            if (commandType == null || !commandType.Identifier.Text.EndsWith(COMMAND_SUFFIX))
-                return Array.Empty<CodeAction>();
+                if (commandType == null || !commandType.Identifier.Text.EndsWith(COMMAND_SUFFIX))
+                    return Array.Empty<CodeAction>();
 
-            var solution = document?.Project?.Solution;
-            if (solution == null)
-                return Array.Empty<CodeAction>();
+                var solution = document?.Project?.Solution;
+                if (solution == null)
+                    return Array.Empty<CodeAction>();
 
-            var @namespace = await GetNamespaceAsync(document, genericName.Span, cancellationToken);
-            var serviceName = GetServiceName(@namespace);
+                var @namespace = await GetNamespaceAsync(document, genericName.Span, cancellationToken);
+                var serviceName = GetServiceName(@namespace);
 
-            if (string.IsNullOrEmpty(serviceName))
-                return Array.Empty<CodeAction>();
+                if (string.IsNullOrEmpty(serviceName))
+                    return Array.Empty<CodeAction>();
 
-            // Create the code action
-            var codeAction = CodeAction.Create(COMMAND_DESCRIPTION,
-                cancellation => GenerateCommandIncludesRelatedClassesAsync(document, serviceName, commandType.Identifier.Text, dtoType?.Identifier.Text, cancellation),
-                equivalenceKey: nameof(RequestCodeRefactoringProvider));
+                // Create the code action
+                var codeAction = CodeAction.Create(COMMAND_DESCRIPTION,
+                    cancellation => GenerateCommandIncludesRelatedClassesAsync(document, serviceName, commandType.Identifier.Text, dtoType?.Identifier.Text, cancellation),
+                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
 
-            return new[] { codeAction };
+                return new[] { codeAction };
+            }
+
+            return Array.Empty<CodeAction>();
         }
     }
 }

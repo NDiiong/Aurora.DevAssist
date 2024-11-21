@@ -1,9 +1,14 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <PackageManifest Version="2.0.0" xmlns="http://schemas.microsoft.com/developer/vsx-schema/2011" xmlns:d="http://schemas.microsoft.com/developer/vsx-schema-design/2011">
     <Metadata>
-        <Identity Id="Aurora.DevAssist.f5eae2af-fd3f-4ab4-b352-0ad87cf7fab9" Version="1.0.0.47" Language="en-US" Publisher="DƯƠNG NGUYỄN" />
+        <Identity Id="faa66a06-5458-4019-a652-e0c47329623c" Version="1.0.47" Language="en-US" Publisher="duong.nguyen" />
         <DisplayName>Aurora.DevAssist</DisplayName>
-        <Description xml:space="preserve">Empty VSIX Project.</Description>
+        <Description xml:space="preserve">Is a tool that supports automatically creating classes including command, query, dto and handler</Description>
+        <MoreInfo>https://github.com/NDiiong/Aurora.DevAssist</MoreInfo>
+        <Icon>aurora_512px.png</Icon>
+        <PreviewImage>aurora_512px.png</PreviewImage>
+        <Tags>aurora</Tags>
+        <Preview>true</Preview>
     </Metadata>
     <Installation>
         <InstallationTarget Id="Microsoft.VisualStudio.Community" Version="[16.11,17.0)">

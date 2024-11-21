@@ -127,28 +127,33 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private async Task<CodeAction[]> SendQueryAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
         {
-            var queryType = genericName.TypeArgumentList.Arguments[0] as IdentifierNameSyntax;
-            var dtoType = genericName.TypeArgumentList.Arguments[1] as IdentifierNameSyntax;
+            if (genericName.TypeArgumentList.Arguments.Count == 2)
+            {
+                var queryType = genericName.TypeArgumentList.Arguments[0] as IdentifierNameSyntax;
+                var dtoType = genericName.TypeArgumentList.Arguments[1] as IdentifierNameSyntax;
 
-            if (queryType == null || dtoType == null || !queryType.Identifier.Text.EndsWith(QUERY_SUFFIX))
-                return Array.Empty<CodeAction>();
+                if (queryType == null || dtoType == null || !queryType.Identifier.Text.EndsWith(QUERY_SUFFIX))
+                    return Array.Empty<CodeAction>();
 
-            var solution = document?.Project?.Solution;
-            if (solution == null)
-                return Array.Empty<CodeAction>();
+                var solution = document?.Project?.Solution;
+                if (solution == null)
+                    return Array.Empty<CodeAction>();
 
-            var @namespace = await GetNamespaceAsync(document, genericName.Span, cancellationToken);
-            var serviceName = GetServiceName(@namespace);
+                var @namespace = await GetNamespaceAsync(document, genericName.Span, cancellationToken);
+                var serviceName = GetServiceName(@namespace);
 
-            if (string.IsNullOrEmpty(serviceName))
-                return Array.Empty<CodeAction>();
+                if (string.IsNullOrEmpty(serviceName))
+                    return Array.Empty<CodeAction>();
 
-            // Create the code action
-            var codeAction = CodeAction.Create(QUERY_DESCRIPTION,
-                cancellation => GenerateQueryIncludesRelatedClassesAsync(document, serviceName, queryType.Identifier.Text, dtoType.Identifier.Text, cancellation),
-                equivalenceKey: nameof(RequestCodeRefactoringProvider));
+                // Create the code action
+                var codeAction = CodeAction.Create(QUERY_DESCRIPTION,
+                    cancellation => GenerateQueryIncludesRelatedClassesAsync(document, serviceName, queryType.Identifier.Text, dtoType.Identifier.Text, cancellation),
+                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
 
-            return new[] { codeAction };
+                return new[] { codeAction };
+            }
+
+            return Array.Empty<CodeAction>();
         }
     }
 }
