@@ -145,7 +145,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                 var project = solution.Projects.FirstOrDefault(p => p.Name == projectName);
                 if (project != null)
                 {
-                    var existingDocument = project.Documents.FirstOrDefault(d => d.Name == fileName);
+                    var existingDocument = project.Documents.FirstOrDefault(d => d.Name == fileName + ".cs");
                     if (existingDocument != null)
                         return solution;
 
@@ -167,10 +167,8 @@ namespace Aurora.DevAssist.CodeRefactorings
                 cancellationToken.ThrowIfCancellationRequested();
 
                 var compilation = await project.GetCompilationAsync(cancellationToken);
-                var matchingType = compilation.GetSymbolsWithName(
-                    s => s == className,
-                    SymbolFilter.Type,
-                    cancellationToken)
+                var matchingType = compilation
+                    .GetSymbolsWithName(s => s == className, SymbolFilter.Type, cancellationToken)
                     .OfType<INamedTypeSymbol>()
                     .FirstOrDefault();
 
