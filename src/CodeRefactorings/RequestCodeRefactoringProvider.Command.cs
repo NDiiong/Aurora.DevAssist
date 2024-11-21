@@ -314,6 +314,17 @@ namespace Aurora.DevAssist.CodeRefactorings
                 if (string.IsNullOrEmpty(serviceName))
                     return Array.Empty<CodeAction>();
 
+                var existingClassCommand = await FindExistingClassAsync(solution, commandType.Identifier.Text, cancellationToken);
+                if (existingClassCommand != null)
+                {
+                    if (dtoType == null)
+                        return Array.Empty<CodeAction>();
+
+                    var existingClassDto = await FindExistingClassAsync(solution, dtoType.Identifier.Text, cancellationToken);
+                    if (existingClassDto != null)
+                        return Array.Empty<CodeAction>();
+                }
+
                 // Create the code action
                 var codeAction = CodeAction.Create(COMMAND_DESCRIPTION,
                     cancellation => GenerateCommandIncludesRelatedClassesAsync(document, serviceName, commandType.Identifier.Text, dtoType?.Identifier.Text, cancellation),

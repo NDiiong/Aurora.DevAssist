@@ -145,6 +145,10 @@ namespace Aurora.DevAssist.CodeRefactorings
                 var project = solution.Projects.FirstOrDefault(p => p.Name == projectName);
                 if (project != null)
                 {
+                    var existingDocument = project.Documents.FirstOrDefault(d => d.Name == fileName);
+                    if (existingDocument != null)
+                        return solution;
+
                     var updateProject = project.AddDocument(fileName, syntax, folder).Project;
                     return updateProject.Solution;
                 }
@@ -158,19 +162,21 @@ namespace Aurora.DevAssist.CodeRefactorings
             if (solution == null || string.IsNullOrWhiteSpace(className))
                 return null;
 
-            foreach (var projectId in solution.ProjectIds)
+            foreach (var project in solution.Projects)
             {
                 cancellationToken.ThrowIfCancellationRequested();
 
-                var project = solution.GetProject(projectId);
-                var compilation = await project.GetCompilationAsync();
-
-                var matchingType = compilation.GetSymbolsWithName(className).OfType<INamedTypeSymbol>().FirstOrDefault();
+                var compilation = await project.GetCompilationAsync(cancellationToken);
+                var matchingType = compilation.GetSymbolsWithName(
+                    s => s == className,
+                    SymbolFilter.Type,
+                    cancellationToken)
+                    .OfType<INamedTypeSymbol>()
+                    .FirstOrDefault();
 
                 if (matchingType != null)
                     return matchingType;
             }
-
             return null;
         }
 
