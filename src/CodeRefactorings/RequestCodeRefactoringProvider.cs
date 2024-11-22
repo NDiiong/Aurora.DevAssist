@@ -43,7 +43,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                 if (classNameTyping.EndsWith(COMMAND_SUFFIX) || classNameTyping.EndsWith(QUERY_SUFFIX))
                 {
                     var existingClass = await FindExistingClassAsync(solution, classNameTyping, cancellationToken);
-                    if (existingClass != null)
+                    if (existingClass)
                         return;
 
                     var @namespace = await GetNamespaceAsync(document, node.Span, cancellationToken);
@@ -168,10 +168,10 @@ namespace Aurora.DevAssist.CodeRefactorings
             return solution;
         }
 
-        private async Task<INamedTypeSymbol> FindExistingClassAsync(Solution solution, string className, CancellationToken cancellationToken)
+        private async Task<bool> FindExistingClassAsync(Solution solution, string className, CancellationToken cancellationToken)
         {
             if (solution == null || string.IsNullOrWhiteSpace(className))
-                return null;
+                return false;
 
             foreach (var projectId in solution.ProjectIds)
             {
@@ -191,10 +191,10 @@ namespace Aurora.DevAssist.CodeRefactorings
                         .FirstOrDefault();
 
                     if (matchingType != null)
-                        return matchingType;
+                        return true;
                 }
             }
-            return null;
+            return false;
         }
 
         private static string GetServiceName(string currentNamespace)

@@ -315,13 +315,13 @@ namespace Aurora.DevAssist.CodeRefactorings
                     return Array.Empty<CodeAction>();
 
                 var existingClassCommand = await FindExistingClassAsync(solution, commandType.Identifier.Text, cancellationToken);
-                if (existingClassCommand != null)
+                if (existingClassCommand)
                 {
                     if (dtoType == null)
                         return Array.Empty<CodeAction>();
 
                     var existingClassDto = await FindExistingClassAsync(solution, dtoType.Identifier.Text, cancellationToken);
-                    if (existingClassDto != null)
+                    if (existingClassDto)
                         return Array.Empty<CodeAction>();
                 }
 

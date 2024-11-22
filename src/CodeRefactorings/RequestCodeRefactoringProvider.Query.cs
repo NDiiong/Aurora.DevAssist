@@ -169,10 +169,10 @@ namespace Aurora.DevAssist.CodeRefactorings
                     return Array.Empty<CodeAction>();
 
                 var existingClassQuery = await FindExistingClassAsync(solution, queryType.Identifier.Text, cancellationToken);
-                if (existingClassQuery != null)
+                if (existingClassQuery)
                 {
                     var existingClassDto = await FindExistingClassAsync(solution, dtoType.Identifier.Text, cancellationToken);
-                    if (existingClassDto != null)
+                    if (existingClassDto)
                         return Array.Empty<CodeAction>();
                     else
                     {
@@ -193,8 +193,6 @@ namespace Aurora.DevAssist.CodeRefactorings
 
                     return new[] { codeAction };
                 }
-
-
             }
 
             return Array.Empty<CodeAction>();
