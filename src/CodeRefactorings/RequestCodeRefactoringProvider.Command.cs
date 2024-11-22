@@ -58,7 +58,7 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private readonly string[] USINGS_DTO = Array.Empty<string>();
 
-        private async Task<Solution> CreateCommandWithHandlerWithoutResultAsync(Document document, string serviceName, string classNameTyping, CancellationToken cancellation)
+        private async Task<Solution> CreateObjectCreationCommandAsync(Document document, string serviceName, string classNameTyping, CancellationToken cancellation)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -331,6 +331,38 @@ namespace Aurora.DevAssist.CodeRefactorings
                     equivalenceKey: nameof(RequestCodeRefactoringProvider));
 
                 return new[] { codeAction };
+            }
+
+            return Array.Empty<CodeAction>();
+        }
+
+        private async Task<CodeAction[]> SendCommandAddCodeActionAsync(IdentifierNameSyntax identifierName, Document document, CancellationToken cancellationToken)
+        {
+            if (identifierName.Identifier.Text == "SendCommand")
+            {
+                var argumentListSyntax = identifierName?.Parent?.Parent.DescendantNodes()?.OfType<ArgumentListSyntax>();
+                if (argumentListSyntax != null && argumentListSyntax.Count() == 1)
+                {
+                    var argumentExpression = argumentListSyntax.ElementAt(0).Arguments.FirstOrDefault()?.Expression;
+                    if (argumentExpression != null)
+                    {
+                        var semanticModel = await document.GetSemanticModelAsync();
+                        var commandType = semanticModel.GetTypeInfo(argumentExpression).Type;
+
+                        if (commandType != null && commandType.Name.EndsWith(COMMAND_SUFFIX))
+                        {
+                            var @namespace = await GetNamespaceAsync(document, identifierName.Span, cancellationToken);
+                            var serviceName = GetServiceName(@namespace);
+
+                            var classNameTyping = commandType.Name;
+                            var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
+                               cancellation => CreateObjectCreationCommandAsync(document, serviceName, classNameTyping, cancellation),
+                               equivalenceKey: nameof(RequestCodeRefactoringProvider));
+
+                            return new[] { commandAction };
+                        }
+                    }
+                }
             }
 
             return Array.Empty<CodeAction>();

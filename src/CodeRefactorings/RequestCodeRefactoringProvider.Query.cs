@@ -46,12 +46,32 @@ namespace Aurora.DevAssist.CodeRefactorings
             "Travel2Pay.Cqrs.Queries"
         };
 
-        private Task<Solution> CreateQueryWithHandlerWithoutResultAsync(Document document, string serviceName, string classNameTyping, CancellationToken cancellation)
+        private async Task<Solution> CreateObjectCreationQueryAsync(Document document, string serviceName, string classNameTyping, CancellationToken cancellation)
         {
-            throw new NotImplementedException();
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            var solution = document.Project.Solution;
+
+            // Create query
+            var queryClassName = classNameTyping;
+            var queryUsings = USINGS_QUERY.Select(u => u.Format(serviceName)).ToArray();
+            var queryNamespace = NAMESPACE_QUERY.Format(serviceName);
+            var queryProject = PROJECT_QUERY.Format(serviceName);
+            var querySyntax = GenerateICommand_IQueryClassSyntax(INTERFACE_QUERY, queryClassName, queryNamespace, queryUsings);
+            solution = await AddDocumentAsync(solution, queryProject, queryClassName, QUERY_HANDLER_FOLDERS, querySyntax);
+
+            // Create Handler
+            var queryHandlerClassName = queryClassName.Replace(QUERY_SUFFIX, QUERY_HANDLER_SUFFIX);
+            var handlerUsings = USINGS_QUERY_HANDLER.Select(u => u.Format(serviceName)).ToArray();
+            var handlerNamespace = NAMESPACE_QUERY_HANDLER.Format(serviceName);
+            var handlerProject = PROJECT_QUERY_HANDLER.Format(serviceName);
+            var handlerSyntax = GenerateQueryHandlerReturnResultClass(queryClassName, queryHandlerClassName, "", handlerNamespace, handlerUsings);
+            solution = await AddDocumentAsync(solution, handlerProject, queryHandlerClassName, QUERY_HANDLER_FOLDERS, handlerSyntax);
+
+            return solution;
         }
 
-        private async Task<Solution> GenerateQueryIncludesRelatedClassesAsync(Document document, string serviceName, string classNameTyping, string dtoTyping, CancellationToken c)
+        private async Task<Solution> GenerateQueryIncludesRelatedClassesAsync(Document document, string serviceName, string classNameTyping, string dtoTyping, CancellationToken cancellation)
         {
             await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
 
@@ -62,6 +82,7 @@ namespace Aurora.DevAssist.CodeRefactorings
             var queryUsings = USINGS_QUERY.Select(u => u.Format(serviceName)).ToArray();
             var queryNamespace = NAMESPACE_QUERY.Format(serviceName);
             var queryProject = PROJECT_QUERY.Format(serviceName);
+            cancellation.ThrowIfCancellationRequested();
             var querySyntax = GenerateICommand_IQueryClassSyntax(INTERFACE_QUERY, queryClassName, queryNamespace, queryUsings);
             solution = await AddDocumentAsync(solution, queryProject, queryClassName, QUERY_HANDLER_FOLDERS, querySyntax);
 
@@ -70,6 +91,7 @@ namespace Aurora.DevAssist.CodeRefactorings
             var dtoUsings = USINGS_DTO.Select(u => u.Format(serviceName)).ToArray();
             var dtoNamespace = NAMESPACE_DTO.Format(serviceName);
             var dtoProject = PROJECT_DTO.Format(serviceName);
+            cancellation.ThrowIfCancellationRequested();
             var dtoSyntax = GenerateDtoClass(dtoName, dtoNamespace, dtoUsings);
             solution = await AddDocumentAsync(solution, dtoProject, dtoName, DTO_FOLDERS, dtoSyntax);
 
@@ -78,6 +100,7 @@ namespace Aurora.DevAssist.CodeRefactorings
             var handlerUsings = USINGS_QUERY_HANDLER.Select(u => u.Format(serviceName)).ToArray();
             var handlerNamespace = NAMESPACE_QUERY_HANDLER.Format(serviceName);
             var handlerProject = PROJECT_QUERY_HANDLER.Format(serviceName);
+            cancellation.ThrowIfCancellationRequested();
             var handlerSyntax = GenerateQueryHandlerReturnResultClass(queryClassName, queryHandlerClassName, dtoName, handlerNamespace, handlerUsings);
             solution = await AddDocumentAsync(solution, handlerProject, queryHandlerClassName, QUERY_HANDLER_FOLDERS, handlerSyntax);
 
@@ -151,14 +174,27 @@ namespace Aurora.DevAssist.CodeRefactorings
                     var existingClassDto = await FindExistingClassAsync(solution, dtoType.Identifier.Text, cancellationToken);
                     if (existingClassDto != null)
                         return Array.Empty<CodeAction>();
+                    else
+                    {
+                        // Create the code action
+                        var codeAction = CodeAction.Create(QUERY_DESCRIPTION,
+                            cancellation => GenerateQueryIncludesRelatedClassesAsync(document, serviceName, queryType.Identifier.Text, dtoType.Identifier.Text, cancellation),
+                            equivalenceKey: nameof(RequestCodeRefactoringProvider));
+
+                        return new[] { codeAction };
+                    }
+                }
+                else
+                {
+                    // Create the code action
+                    var codeAction = CodeAction.Create(QUERY_DESCRIPTION,
+                        cancellation => GenerateQueryIncludesRelatedClassesAsync(document, serviceName, queryType.Identifier.Text, dtoType.Identifier.Text, cancellation),
+                        equivalenceKey: nameof(RequestCodeRefactoringProvider));
+
+                    return new[] { codeAction };
                 }
 
-                // Create the code action
-                var codeAction = CodeAction.Create(QUERY_DESCRIPTION,
-                    cancellation => GenerateQueryIncludesRelatedClassesAsync(document, serviceName, queryType.Identifier.Text, dtoType.Identifier.Text, cancellation),
-                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
 
-                return new[] { codeAction };
             }
 
             return Array.Empty<CodeAction>();

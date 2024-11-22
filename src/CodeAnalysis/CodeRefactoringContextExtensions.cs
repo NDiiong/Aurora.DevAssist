@@ -24,9 +24,12 @@ namespace Aurora.DevAssist.CodeAnalysis
 
         public static void AddCodeActions(this CodeRefactoringContext context, CodeAction[] codeActions)
         {
-            for (var i = 0; i < codeActions.Length; i++)
+            if (codeActions != null && codeActions.Length >= 0)
             {
-                context.RegisterRefactoring(codeActions[i]);
+                for (var i = 0; i < codeActions.Length; i++)
+                {
+                    context.RegisterRefactoring(codeActions[i]);
+                }
             }
 
             //if (codeActions.Length > 0)

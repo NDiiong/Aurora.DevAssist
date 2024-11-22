@@ -56,14 +56,14 @@ namespace Aurora.DevAssist.CodeRefactorings
                     if (classNameTyping.EndsWith(COMMAND_SUFFIX))
                     {
                         var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
-                            cancellation => CreateCommandWithHandlerWithoutResultAsync(document, serviceName, classNameTyping, cancellation),
+                            cancellation => CreateObjectCreationCommandAsync(document, serviceName, classNameTyping, cancellation),
                             equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(commandAction);
                     }
                     else if (classNameTyping.EndsWith(QUERY_SUFFIX))
                     {
-                        var queryAction = CodeAction.Create(COMMAND_DESCRIPTION,
-                            cancellation => CreateQueryWithHandlerWithoutResultAsync(document, serviceName, classNameTyping, cancellation),
+                        var queryAction = CodeAction.Create(QUERY_DESCRIPTION,
+                            cancellation => CreateObjectCreationQueryAsync(document, serviceName, classNameTyping, cancellation),
                             equivalenceKey: nameof(RequestCodeRefactoringProvider));
                         codeActions.Add(queryAction);
                     }
@@ -112,6 +112,11 @@ namespace Aurora.DevAssist.CodeRefactorings
                     var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
                     context.AddCodeActions(codeActions);
                 }
+                else if (parentMemberAccessExpression.Name is IdentifierNameSyntax identifierName3)
+                {
+                    var codeActions = await SendCommandAddCodeActionAsync(identifierName3, document, cancellationToken);
+                    context.AddCodeActions(codeActions);
+                }
             }
             // WHEN THE MOUSE POINTER FOCUSES ON THE AWAIT
             else if (node is AwaitExpressionSyntax awaitExpressionSyntax && awaitExpressionSyntax.Expression is InvocationExpressionSyntax invocationExpressionSyntax)
@@ -123,6 +128,11 @@ namespace Aurora.DevAssist.CodeRefactorings
                 if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
                 {
                     var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                    context.AddCodeActions(codeActions);
+                }
+                else if (memberAccessExpression.Name is IdentifierNameSyntax identifierName3)
+                {
+                    var codeActions = await SendCommandAddCodeActionAsync(identifierName3, document, cancellationToken);
                     context.AddCodeActions(codeActions);
                 }
             }
@@ -163,18 +173,26 @@ namespace Aurora.DevAssist.CodeRefactorings
             if (solution == null || string.IsNullOrWhiteSpace(className))
                 return null;
 
-            foreach (var project in solution.Projects)
+            foreach (var projectId in solution.ProjectIds)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                var project = solution.GetProject(projectId);
 
-                var compilation = await project.GetCompilationAsync(cancellationToken);
-                var matchingType = compilation
-                    .GetSymbolsWithName(s => s == className, SymbolFilter.Type, cancellationToken)
-                    .OfType<INamedTypeSymbol>()
-                    .FirstOrDefault();
+                // Use GetAllDocuments() to include all documents in nested folders
+                var documents = project.Documents;
 
-                if (matchingType != null)
-                    return matchingType;
+                foreach (var document in documents)
+                {
+                    var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
+                    var matchingType = semanticModel.Compilation.GetSymbolsWithName(
+                        name => name == className,
+                        SymbolFilter.Type)
+                        .OfType<INamedTypeSymbol>()
+                        .FirstOrDefault();
+
+                    if (matchingType != null)
+                        return matchingType;
+                }
             }
             return null;
         }
