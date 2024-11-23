@@ -102,11 +102,10 @@ namespace Aurora.DevAssist.CodeRefactorings
                     var objectCreation = variableDeclarator.DescendantNodes().OfType<ObjectCreationExpressionSyntax>().FirstOrDefault();
                     if (objectCreation != null)
                     {
-                        var className = objectCreation.Type.ToString();
-
+                        var classNameTyping = objectCreation.Type.ToString();
                         var @namespace = await GetNamespaceAsync(document, node.Span, cancellationToken);
                         var serviceName = GetServiceName(@namespace);
-                        var codeActions = await NewCommandQueryObjectCreationAsync(document, className, serviceName);
+                        var codeActions = await NewCommandQueryObjectCreationAsync(document, classNameTyping, serviceName);
                         context.AddCodeActions(codeActions);
                     }
                 }
@@ -153,24 +152,43 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private async Task<CodeAction[]> NewCommandQueryObjectCreationAsync(Document document, string classNameTyping, string serviceName)
         {
-            var existingClass = await FindExistingClassAsync(document.Project.Solution, classNameTyping, default);
-            if (existingClass)
-                return Array.Empty<CodeAction>();
-
             var codeActions = new List<CodeAction>();
             // ex:  var command = new Command(dto);
             if (classNameTyping.EndsWith(COMMAND_SUFFIX))
             {
+                var commandName = classNameTyping;
+                var commandHandlerName = commandName.Replace(COMMAND_SUFFIX, COMMAND_HANDLER_SUFFIX);
+
+                var existingCommandName = await FindExistingClassAsync(document.Project.Solution, commandName, default);
+                var existingCommandHandlerName = await FindExistingClassAsync(document.Project.Solution, commandHandlerName, default);
+
+                if (existingCommandName && existingCommandHandlerName)
+                    return Array.Empty<CodeAction>();
+
                 var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
-                    cancellation => CreateObjectCreationCommandAsync(document, serviceName, classNameTyping, cancellation),
+                    cancellation => CreateObjectCreationCommandAsync(
+                        document, serviceName,
+                        existingCommandName, existingCommandHandlerName,
+                        commandName, commandHandlerName, cancellation),
                     equivalenceKey: nameof(RequestCodeRefactoringProvider));
                 codeActions.Add(commandAction);
             }
             // ex:  var query = new Query(dto);
             else if (classNameTyping.EndsWith(QUERY_SUFFIX))
             {
+                var queryName = classNameTyping;
+                var queryHandlerName = queryName.Replace(QUERY_SUFFIX, QUERY_HANDLER_SUFFIX);
+
+                var existingQueryName = await FindExistingClassAsync(document.Project.Solution, queryName, default);
+                var existingQueryHandlerName = await FindExistingClassAsync(document.Project.Solution, queryHandlerName, default);
+                if (existingQueryName && existingQueryHandlerName)
+                    return Array.Empty<CodeAction>();
+
                 var queryAction = CodeAction.Create(QUERY_DESCRIPTION,
-                    cancellation => CreateObjectCreationQueryAsync(document, serviceName, classNameTyping, cancellation),
+                    cancellation => CreateObjectCreationQueryAsync(
+                        document, serviceName,
+                        existingQueryName, existingQueryHandlerName,
+                        queryName, queryHandlerName, cancellation),
                     equivalenceKey: nameof(RequestCodeRefactoringProvider));
                 codeActions.Add(queryAction);
             }
@@ -210,11 +228,11 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private async Task<bool> FindExistingClassAsync(Solution solution, string className, CancellationToken cancellationToken)
         {
+            if (solution == null || string.IsNullOrWhiteSpace(className))
+                return false;
+
             try
             {
-                if (solution == null || string.IsNullOrWhiteSpace(className))
-                    return false;
-
                 foreach (var projectId in solution.ProjectIds)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
@@ -226,19 +244,18 @@ namespace Aurora.DevAssist.CodeRefactorings
                     foreach (var document in documents)
                     {
                         var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
-                        var matchingType = semanticModel.Compilation.GetSymbolsWithName(
-                            name => name == className,
-                            SymbolFilter.Type)
-                            .OfType<INamedTypeSymbol>()
-                            .FirstOrDefault();
+                        var matchingType = semanticModel.Compilation
+                            .GetSymbolsWithName(name => name == className, SymbolFilter.Type)
+                            .OfType<INamedTypeSymbol>().FirstOrDefault();
 
                         if (matchingType != null)
                             return true;
                     }
                 }
+
                 return false;
             }
-            catch (Exception ex)
+            catch (Exception)
             {
                 return true;
             }
@@ -269,7 +286,7 @@ namespace Aurora.DevAssist.CodeRefactorings
             return string.Empty;
         }
 
-        private CompilationUnitSyntax GenerateICommand_IQueryClassSyntax(string @interface, string className, string @namespace, string[] usings)
+        private CompilationUnitSyntax GenerateICommand_IQueryClassSyntax(string @interface, string commandOrQueryName, string @namespace, string[] usings)
         {
             var compilationUnit = SyntaxFactory.CompilationUnit();
 
@@ -287,7 +304,7 @@ namespace Aurora.DevAssist.CodeRefactorings
             );
 
             // Create class declaration
-            var classDeclaration = SyntaxFactory.ClassDeclaration(className)
+            var classDeclaration = SyntaxFactory.ClassDeclaration(commandOrQueryName)
                 .WithModifiers(
                     SyntaxFactory.TokenList(
                         SyntaxFactory.Token(SyntaxKind.PublicKeyword)
