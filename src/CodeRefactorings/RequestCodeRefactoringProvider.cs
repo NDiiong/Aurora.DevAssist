@@ -177,7 +177,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                 codeActions.Add(queryAction);
             }
 
-            return Array.Empty<CodeAction>();
+            return codeActions.ToArray();
         }
 
         private async Task<CodeAction[]> DetectSendCommandQueryAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
