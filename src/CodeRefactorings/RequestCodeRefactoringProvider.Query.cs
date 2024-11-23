@@ -46,87 +46,6 @@ namespace Aurora.DevAssist.CodeRefactorings
             "Travel2Pay.Cqrs.Queries"
         };
 
-        private async Task<Solution> CreateObjectCreationQueryAsync(
-            Document document, string serviceName,
-            bool existingQuery, bool existingQueryHandler,
-            string queryName, string queryHandlerName, CancellationToken cancellation)
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            var solution = document.Project.Solution;
-
-            if (!existingQuery)
-            {
-                // Create query
-                var queryUsings = USINGS_QUERY.Select(u => u.Format(serviceName)).ToArray();
-                var queryNamespace = NAMESPACE_QUERY.Format(serviceName);
-                var queryProject = PROJECT_QUERY.Format(serviceName);
-                cancellation.ThrowIfCancellationRequested();
-                var querySyntax = GenerateICommand_IQueryClassSyntax(INTERFACE_QUERY, queryName, queryNamespace, queryUsings);
-                solution = await AddDocumentAsync(solution, queryProject, queryName, QUERY_HANDLER_FOLDERS, querySyntax);
-            }
-
-            if (!existingQueryHandler)
-            {
-                // Create Handler
-                var handlerUsings = USINGS_QUERY_HANDLER.Select(u => u.Format(serviceName)).ToArray();
-                var handlerNamespace = NAMESPACE_QUERY_HANDLER.Format(serviceName);
-                var handlerProject = PROJECT_QUERY_HANDLER.Format(serviceName);
-                cancellation.ThrowIfCancellationRequested();
-                var handlerSyntax = GenerateQueryHandlerReturnResultClass(queryName, queryHandlerName, "", handlerNamespace, handlerUsings);
-                solution = await AddDocumentAsync(solution, handlerProject, queryHandlerName, QUERY_HANDLER_FOLDERS, handlerSyntax);
-            }
-
-            return solution;
-        }
-
-        private async Task<Solution> GenerateQueryIncludesRelatedClassesAsync(
-            Document document,
-            string serviceName,
-            bool existingQuery, bool existingQueryHandler, bool existingDto,
-            string queryName, string queryHandlerName, string dtoName,
-            CancellationToken cancellation)
-        {
-            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
-
-            var solution = document.Project.Solution;
-
-            if (!existingQuery)
-            {
-                // Create Query
-                var queryUsings = USINGS_QUERY.Select(u => u.Format(serviceName)).ToArray();
-                var queryNamespace = NAMESPACE_QUERY.Format(serviceName);
-                var queryProject = PROJECT_QUERY.Format(serviceName);
-                cancellation.ThrowIfCancellationRequested();
-                var querySyntax = GenerateICommand_IQueryClassSyntax(INTERFACE_QUERY, queryName, queryNamespace, queryUsings);
-                solution = await AddDocumentAsync(solution, queryProject, queryName, QUERY_HANDLER_FOLDERS, querySyntax);
-            }
-
-            if (!existingDto)
-            {
-                // Generate DTO class
-                var dtoUsings = USINGS_DTO.Select(u => u.Format(serviceName)).ToArray();
-                var dtoNamespace = NAMESPACE_DTO.Format(serviceName);
-                var dtoProject = PROJECT_DTO.Format(serviceName);
-                cancellation.ThrowIfCancellationRequested();
-                var dtoSyntax = GenerateDtoClass(dtoName, dtoNamespace, dtoUsings);
-                solution = await AddDocumentAsync(solution, dtoProject, dtoName, DTO_FOLDERS, dtoSyntax);
-            }
-
-            if (!existingQueryHandler)
-            {
-                // Generate Handler class
-                var handlerUsings = USINGS_QUERY_HANDLER.Select(u => u.Format(serviceName)).ToArray();
-                var handlerNamespace = NAMESPACE_QUERY_HANDLER.Format(serviceName);
-                var handlerProject = PROJECT_QUERY_HANDLER.Format(serviceName);
-                cancellation.ThrowIfCancellationRequested();
-                var handlerSyntax = GenerateQueryHandlerReturnResultClass(queryName, queryHandlerName, dtoName, handlerNamespace, handlerUsings);
-                solution = await AddDocumentAsync(solution, handlerProject, queryHandlerName, QUERY_HANDLER_FOLDERS, handlerSyntax);
-            }
-
-            return solution;
-        }
-
         private async Task<CodeAction[]> SendQueryAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
         {
             if (genericName.TypeArgumentList.Arguments.Count == 2)
@@ -170,6 +89,86 @@ namespace Aurora.DevAssist.CodeRefactorings
             }
 
             return Array.Empty<CodeAction>();
+        }
+
+        private async Task<Solution> CreateObjectCreationQueryAsync(
+            Document document, string serviceName,
+            bool existingQuery, bool existingQueryHandler,
+            string queryName, string queryHandlerName, CancellationToken cancellation)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            var solution = document.Project.Solution;
+
+            if (!existingQuery)
+            {
+                // Create query
+                var queryUsings = USINGS_QUERY.Select(u => u.Format(serviceName)).ToArray();
+                var queryNamespace = NAMESPACE_QUERY.Format(serviceName);
+                var queryProject = PROJECT_QUERY.Format(serviceName);
+                cancellation.ThrowIfCancellationRequested();
+                var querySyntax = GenerateICommand_IQueryClassSyntax(INTERFACE_QUERY, queryName, queryNamespace, queryUsings);
+                solution = await AddDocumentAsync(solution, queryProject, queryName, QUERY_HANDLER_FOLDERS, querySyntax);
+            }
+
+            if (!existingQueryHandler)
+            {
+                // Create Handler
+                var handlerUsings = USINGS_QUERY_HANDLER.Select(u => u.Format(serviceName)).ToArray();
+                var handlerNamespace = NAMESPACE_QUERY_HANDLER.Format(serviceName);
+                var handlerProject = PROJECT_QUERY_HANDLER.Format(serviceName);
+                cancellation.ThrowIfCancellationRequested();
+                var handlerSyntax = GenerateQueryHandlerReturnResultClass(queryName, queryHandlerName, "", handlerNamespace, handlerUsings);
+                solution = await AddDocumentAsync(solution, handlerProject, queryHandlerName, QUERY_HANDLER_FOLDERS, handlerSyntax);
+            }
+
+            return solution;
+        }
+
+        private async Task<Solution> GenerateQueryIncludesRelatedClassesAsync(
+            Document document, string serviceName,
+            bool existingQuery, bool existingQueryHandler, bool existingDto,
+            string queryName, string queryHandlerName, string dtoName,
+            CancellationToken cancellation)
+        {
+            await ThreadHelper.JoinableTaskFactory.SwitchToMainThreadAsync();
+
+            var solution = document.Project.Solution;
+
+            if (!existingQuery)
+            {
+                // Create Query
+                var queryUsings = USINGS_QUERY.Select(u => u.Format(serviceName)).ToArray();
+                var queryNamespace = NAMESPACE_QUERY.Format(serviceName);
+                var queryProject = PROJECT_QUERY.Format(serviceName);
+                cancellation.ThrowIfCancellationRequested();
+                var querySyntax = GenerateICommand_IQueryClassSyntax(INTERFACE_QUERY, queryName, queryNamespace, queryUsings);
+                solution = await AddDocumentAsync(solution, queryProject, queryName, QUERY_HANDLER_FOLDERS, querySyntax);
+            }
+
+            if (!existingDto)
+            {
+                // Generate DTO class
+                var dtoUsings = USINGS_DTO.Select(u => u.Format(serviceName)).ToArray();
+                var dtoNamespace = NAMESPACE_DTO.Format(serviceName);
+                var dtoProject = PROJECT_DTO.Format(serviceName);
+                cancellation.ThrowIfCancellationRequested();
+                var dtoSyntax = GenerateDtoClass(dtoName, dtoNamespace, dtoUsings);
+                solution = await AddDocumentAsync(solution, dtoProject, dtoName, DTO_FOLDERS, dtoSyntax);
+            }
+
+            if (!existingQueryHandler)
+            {
+                // Generate Handler class
+                var handlerUsings = USINGS_QUERY_HANDLER.Select(u => u.Format(serviceName)).ToArray();
+                var handlerNamespace = NAMESPACE_QUERY_HANDLER.Format(serviceName);
+                var handlerProject = PROJECT_QUERY_HANDLER.Format(serviceName);
+                cancellation.ThrowIfCancellationRequested();
+                var handlerSyntax = GenerateQueryHandlerReturnResultClass(queryName, queryHandlerName, dtoName, handlerNamespace, handlerUsings);
+                solution = await AddDocumentAsync(solution, handlerProject, queryHandlerName, QUERY_HANDLER_FOLDERS, handlerSyntax);
+            }
+
+            return solution;
         }
 
         private static CompilationUnitSyntax GenerateQueryHandlerReturnResultClass(string queryName, string queryHandlerName, string dtoName, string @namespace, string[] usings)

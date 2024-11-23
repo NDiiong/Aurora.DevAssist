@@ -58,7 +58,104 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private readonly string[] USINGS_DTO = Array.Empty<string>();
 
-        private async Task<Solution> CreateObjectCreationCommandAsync(Document document, string serviceName,
+        private async Task<CodeAction[]> SendCommandAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
+        {
+            if (genericName.TypeArgumentList.Arguments.Count == 1 || genericName.TypeArgumentList.Arguments.Count == 2)
+            {
+                var arguments = genericName.TypeArgumentList.Arguments;
+                var commandType = arguments[0] as IdentifierNameSyntax;
+                var dtoType = arguments.Count == 1 ? null : arguments[1] as IdentifierNameSyntax;
+
+                if (commandType == null || !commandType.Identifier.Text.EndsWith(COMMAND_SUFFIX))
+                    return Array.Empty<CodeAction>();
+
+                var solution = document?.Project?.Solution;
+                if (solution == null)
+                    return Array.Empty<CodeAction>();
+
+                var @namespace = await GetNamespaceAsync(document, genericName.Span, cancellationToken);
+                var serviceName = GetServiceName(@namespace);
+
+                if (string.IsNullOrEmpty(serviceName))
+                    return Array.Empty<CodeAction>();
+
+                var commandName = commandType.Identifier.Text;
+                var commandHandlerName = commandName.Replace(COMMAND_SUFFIX, COMMAND_HANDLER_SUFFIX);
+                var dtoName = dtoType?.Identifier.Text;
+
+                var existingCommand = await FindExistingClassAsync(solution, commandName, cancellationToken);
+                var existingCommandHandler = await FindExistingClassAsync(solution, commandHandlerName, cancellationToken);
+                var existingDto = dtoType == null || string.IsNullOrEmpty(dtoName) ? true : await FindExistingClassAsync(solution, dtoName, cancellationToken);
+
+                if (existingCommand && existingCommandHandler && existingDto)
+                    return Array.Empty<CodeAction>();
+
+                // Create the code action
+                var codeAction = CodeAction.Create(COMMAND_DESCRIPTION,
+                    cancellation => GenerateCommandIncludesRelatedClassesAsync(
+                        document, serviceName,
+                        existingCommand, existingCommandHandler, existingDto,
+                        commandName, commandHandlerName, dtoName, cancellation),
+                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
+
+                return new[] { codeAction };
+            }
+
+            return Array.Empty<CodeAction>();
+        }
+
+        private async Task<CodeAction[]> SendCommandAddCodeActionAsync(IdentifierNameSyntax identifierName, Document document, CancellationToken cancellationToken)
+        {
+            if (identifierName != null && identifierName.Identifier.Text == "SendCommand")
+            {
+                var argumentListSyntax = identifierName.Parent?.Parent?.DescendantNodes()?.OfType<ArgumentListSyntax>();
+                if (argumentListSyntax != null && argumentListSyntax.Count() == 1)
+                {
+                    var argumentExpression = argumentListSyntax.ElementAt(0).Arguments.FirstOrDefault()?.Expression;
+                    if (argumentExpression != null)
+                    {
+                        var semanticModel = await document.GetSemanticModelAsync();
+                        var commandType = semanticModel.GetTypeInfo(argumentExpression).Type;
+
+                        if (commandType != null && commandType.Name.EndsWith(COMMAND_SUFFIX))
+                        {
+                            var solution = document?.Project?.Solution;
+                            if (solution == null)
+                                return Array.Empty<CodeAction>();
+
+                            var @namespace = await GetNamespaceAsync(document, identifierName.Span, cancellationToken);
+
+                            var serviceName = GetServiceName(@namespace);
+                            if (string.IsNullOrEmpty(serviceName))
+                                return Array.Empty<CodeAction>();
+
+                            var commandName = commandType.Name;
+                            var commandHandlerName = commandName.Replace(COMMAND_SUFFIX, COMMAND_HANDLER_SUFFIX);
+
+                            var existingCommand = await FindExistingClassAsync(document.Project.Solution, commandName, cancellationToken);
+                            var existingCommandHandler = await FindExistingClassAsync(document.Project.Solution, commandHandlerName, cancellationToken);
+
+                            if (existingCommand && existingCommandHandler)
+                                return Array.Empty<CodeAction>();
+
+                            var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
+                               cancellation => CreateObjectCreationCommandAsync(
+                                   document, serviceName,
+                                   existingCommand, existingCommandHandler,
+                                   commandName, commandHandlerName, cancellation),
+                               equivalenceKey: nameof(RequestCodeRefactoringProvider));
+
+                            return new[] { commandAction };
+                        }
+                    }
+                }
+            }
+
+            return Array.Empty<CodeAction>();
+        }
+
+        private async Task<Solution> CreateObjectCreationCommandAsync(
+            Document document, string serviceName,
             bool existingCommand, bool existingCommandHandler,
             string commandName, string commandHandlerName,
             CancellationToken cancellationToken)
@@ -108,6 +205,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                 var commandUsings = USINGS_COMMAND.Select(u => u.Format(serviceName)).ToArray();
                 var commandNamespace = NAMESPACE_COMMAND.Format(serviceName);
                 var commandProject = PROJECT_COMMAND.Format(serviceName);
+                cancellationToken.ThrowIfCancellationRequested();
                 var commandSyntax = GenerateICommand_IQueryClassSyntax(INTERFACE_COMMAND, commandName, commandNamespace, commandUsings);
                 solution = await AddDocumentAsync(solution, commandProject, commandName, COMMAND_HANDLER_FOLDERS, commandSyntax);
             }
@@ -120,6 +218,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                     var dtoUsings = USINGS_DTO.Select(u => u.Format(serviceName)).ToArray();
                     var dtoNamespace = NAMESPACE_DTO.Format(serviceName);
                     var dtoProject = PROJECT_DTO.Format(serviceName);
+                    cancellationToken.ThrowIfCancellationRequested();
                     var dtoSyntax = GenerateDtoClass(dtoName, dtoNamespace, dtoUsings);
                     solution = await AddDocumentAsync(solution, dtoProject, dtoName, DTO_FOLDERS, dtoSyntax);
                 }
@@ -131,6 +230,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                 var handlerUsings = USINGS_COMMAND_HANDLER_WITH_RESULT.Select(u => u.Format(serviceName)).ToArray();
                 var handlerNamespace = NAMESPACE_COMMAND_HANDLER_WITH_RESULT.Format(serviceName);
                 var handlerProject = PROJECT_COMMAND_HANDLER_WITH_RESULT.Format(serviceName);
+                cancellationToken.ThrowIfCancellationRequested();
                 var handlerSyntax = GenerateCommandHandlerReturnResultClass(commandName, commandHandlerName, dtoName, handlerNamespace, handlerUsings);
                 solution = await AddDocumentAsync(solution, handlerProject, commandHandlerName, COMMAND_HANDLER_WITH_RESULT_FOLDERS, handlerSyntax);
             }
@@ -138,174 +238,86 @@ namespace Aurora.DevAssist.CodeRefactorings
             return solution;
         }
 
-        private async Task<CodeAction[]> SendCommandAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)
-        {
-            if (genericName.TypeArgumentList.Arguments.Count == 1 || genericName.TypeArgumentList.Arguments.Count == 2)
-            {
-                var arguments = genericName.TypeArgumentList.Arguments;
-                var commandType = arguments[0] as IdentifierNameSyntax;
-                var dtoType = arguments.Count == 1 ? null : arguments[1] as IdentifierNameSyntax;
-
-                if (commandType == null || !commandType.Identifier.Text.EndsWith(COMMAND_SUFFIX))
-                    return Array.Empty<CodeAction>();
-
-                var solution = document?.Project?.Solution;
-                if (solution == null)
-                    return Array.Empty<CodeAction>();
-
-                var @namespace = await GetNamespaceAsync(document, genericName.Span, cancellationToken);
-                var serviceName = GetServiceName(@namespace);
-
-                if (string.IsNullOrEmpty(serviceName))
-                    return Array.Empty<CodeAction>();
-
-                var commandName = commandType.Identifier.Text;
-                var commandHandlerName = commandName.Replace(COMMAND_SUFFIX, COMMAND_HANDLER_SUFFIX);
-                var dtoName = dtoType.Identifier.Text;
-
-                var existingCommand = await FindExistingClassAsync(solution, commandName, cancellationToken);
-                var existingCommandHandler = await FindExistingClassAsync(solution, commandHandlerName, cancellationToken);
-                var existingDto = dtoType == null ? true : await FindExistingClassAsync(solution, dtoName, cancellationToken);
-
-                if (existingCommand && existingCommandHandler && existingDto)
-                    return Array.Empty<CodeAction>();
-
-                // Create the code action
-                var codeAction = CodeAction.Create(COMMAND_DESCRIPTION,
-                    cancellation => GenerateCommandIncludesRelatedClassesAsync(
-                        document, serviceName,
-                        existingCommand, existingCommandHandler, existingDto,
-                        commandName, commandHandlerName, dtoType?.Identifier.Text, cancellation),
-                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
-
-                return new[] { codeAction };
-            }
-
-            return Array.Empty<CodeAction>();
-        }
-
-        private async Task<CodeAction[]> SendCommandAddCodeActionAsync(IdentifierNameSyntax identifierName, Document document, CancellationToken cancellationToken)
-        {
-            if (identifierName.Identifier.Text == "SendCommand")
-            {
-                var argumentListSyntax = identifierName?.Parent?.Parent.DescendantNodes()?.OfType<ArgumentListSyntax>();
-                if (argumentListSyntax != null && argumentListSyntax.Count() == 1)
-                {
-                    var argumentExpression = argumentListSyntax.ElementAt(0).Arguments.FirstOrDefault()?.Expression;
-                    if (argumentExpression != null)
-                    {
-                        var semanticModel = await document.GetSemanticModelAsync();
-                        var commandType = semanticModel.GetTypeInfo(argumentExpression).Type;
-
-                        if (commandType != null && commandType.Name.EndsWith(COMMAND_SUFFIX))
-                        {
-                            var @namespace = await GetNamespaceAsync(document, identifierName.Span, cancellationToken);
-                            var serviceName = GetServiceName(@namespace);
-
-                            var commandName = commandType.Name;
-                            var commandHandlerName = commandName.Replace(COMMAND_SUFFIX, COMMAND_HANDLER_SUFFIX);
-
-                            var existingCommand = await FindExistingClassAsync(document.Project.Solution, commandName, cancellationToken);
-                            var existingCommandHandler = await FindExistingClassAsync(document.Project.Solution, commandHandlerName, cancellationToken);
-
-                            if (existingCommand && existingCommandHandler)
-                                return Array.Empty<CodeAction>();
-
-                            var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
-                               cancellation => CreateObjectCreationCommandAsync(
-                                   document, serviceName,
-                                   existingCommand, existingCommandHandler,
-                                   commandName, commandHandlerName, cancellation),
-                               equivalenceKey: nameof(RequestCodeRefactoringProvider));
-
-                            return new[] { commandAction };
-                        }
-                    }
-                }
-            }
-
-            return Array.Empty<CodeAction>();
-        }
-
         private static CompilationUnitSyntax GenerateCommandHandlerReturnResultClass(string commandName, string commandHandlerName, string dtoName, string @namespace, string[] usings)
         {
             if (!string.IsNullOrEmpty(dtoName))
             {
                 return SyntaxFactory.CompilationUnit()
-                .AddUsings(@namespace, usings)
-                .AddMembers(
-                    SyntaxFactory.NamespaceDeclaration(
-                        SyntaxFactory.ParseName(@namespace))
+                    .AddUsings(@namespace, usings)
                     .AddMembers(
-                        SyntaxFactory.ClassDeclaration(commandHandlerName)
-                            .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
-                            .AddBaseListTypes(
-                                SyntaxFactory.SimpleBaseType(
-                                    SyntaxFactory.ParseTypeName($"{ABSTRACT_COMMAND_HANDLER}<{commandName}, {dtoName}>")))
-                            .AddMembers(
-                                SyntaxFactory.MethodDeclaration(
-                                    SyntaxFactory.ParseTypeName($"Task<{dtoName}>"),
-                                    "HandleAsync")
-                                    .AddModifiers(
-                                        SyntaxFactory.Token(SyntaxKind.ProtectedKeyword),
-                                        SyntaxFactory.Token(SyntaxKind.OverrideKeyword),
-                                        SyntaxFactory.Token(SyntaxKind.AsyncKeyword))
-                                    .AddParameterListParameters(
-                                        SyntaxFactory.Parameter(
-                                            SyntaxFactory.Identifier("command"))
-                                            .WithType(SyntaxFactory.ParseTypeName(commandName)),
-                                        SyntaxFactory.Parameter(
-                                            SyntaxFactory.Identifier("token"))
-                                            .WithType(SyntaxFactory.ParseTypeName("CancellationToken"))
-                                            .WithDefault(
-                                                SyntaxFactory.EqualsValueClause(
-                                                    SyntaxFactory.LiteralExpression(
-                                                        SyntaxKind.DefaultLiteralExpression))))
-                                    .WithBody(
-                                        SyntaxFactory.Block(
-                                            SyntaxFactory.ThrowStatement(
-                                                SyntaxFactory.ObjectCreationExpression(
-                                                    SyntaxFactory.ParseTypeName("NotImplementedException"))
-                                                    .WithArgumentList(
-                                                        SyntaxFactory.ArgumentList())))))));
+                        SyntaxFactory.NamespaceDeclaration(
+                            SyntaxFactory.ParseName(@namespace))
+                        .AddMembers(
+                            SyntaxFactory.ClassDeclaration(commandHandlerName)
+                                .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                                .AddBaseListTypes(
+                                    SyntaxFactory.SimpleBaseType(
+                                        SyntaxFactory.ParseTypeName($"{ABSTRACT_COMMAND_HANDLER}<{commandName}, {dtoName}>")))
+                                .AddMembers(
+                                    SyntaxFactory.MethodDeclaration(
+                                        SyntaxFactory.ParseTypeName($"Task<{dtoName}>"),
+                                        "HandleAsync")
+                                        .AddModifiers(
+                                            SyntaxFactory.Token(SyntaxKind.ProtectedKeyword),
+                                            SyntaxFactory.Token(SyntaxKind.OverrideKeyword),
+                                            SyntaxFactory.Token(SyntaxKind.AsyncKeyword))
+                                        .AddParameterListParameters(
+                                            SyntaxFactory.Parameter(
+                                                SyntaxFactory.Identifier("command"))
+                                                .WithType(SyntaxFactory.ParseTypeName(commandName)),
+                                            SyntaxFactory.Parameter(
+                                                SyntaxFactory.Identifier("token"))
+                                                .WithType(SyntaxFactory.ParseTypeName("CancellationToken"))
+                                                .WithDefault(
+                                                    SyntaxFactory.EqualsValueClause(
+                                                        SyntaxFactory.LiteralExpression(
+                                                            SyntaxKind.DefaultLiteralExpression))))
+                                        .WithBody(
+                                            SyntaxFactory.Block(
+                                                SyntaxFactory.ThrowStatement(
+                                                    SyntaxFactory.ObjectCreationExpression(
+                                                        SyntaxFactory.ParseTypeName("NotImplementedException"))
+                                                        .WithArgumentList(
+                                                            SyntaxFactory.ArgumentList())))))));
             }
+
             return SyntaxFactory.CompilationUnit()
-                .AddUsings(@namespace, usings)
-                .AddMembers(
-                    SyntaxFactory.NamespaceDeclaration(
-                        SyntaxFactory.ParseName(@namespace))
+                    .AddUsings(@namespace, usings)
                     .AddMembers(
-                        SyntaxFactory.ClassDeclaration(commandHandlerName)
-                            .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
-                            .AddBaseListTypes(
-                                SyntaxFactory.SimpleBaseType(
-                                    SyntaxFactory.ParseTypeName($"{ABSTRACT_COMMAND_HANDLER}<{commandName}>")))
-                            .AddMembers(
-                                SyntaxFactory.MethodDeclaration(
-                                    SyntaxFactory.ParseTypeName($"Task"),
-                                    "HandleAsync")
-                                    .AddModifiers(
-                                        SyntaxFactory.Token(SyntaxKind.ProtectedKeyword),
-                                        SyntaxFactory.Token(SyntaxKind.OverrideKeyword),
-                                        SyntaxFactory.Token(SyntaxKind.AsyncKeyword))
-                                    .AddParameterListParameters(
-                                        SyntaxFactory.Parameter(
-                                            SyntaxFactory.Identifier("command"))
-                                            .WithType(SyntaxFactory.ParseTypeName(commandName)),
-                                        SyntaxFactory.Parameter(
-                                            SyntaxFactory.Identifier("token"))
-                                            .WithType(SyntaxFactory.ParseTypeName("CancellationToken"))
-                                            .WithDefault(
-                                                SyntaxFactory.EqualsValueClause(
-                                                    SyntaxFactory.LiteralExpression(
-                                                        SyntaxKind.DefaultLiteralExpression))))
-                                    .WithBody(
-                                        SyntaxFactory.Block(
-                                            SyntaxFactory.ThrowStatement(
-                                                SyntaxFactory.ObjectCreationExpression(
-                                                    SyntaxFactory.ParseTypeName("NotImplementedException"))
-                                                    .WithArgumentList(
-                                                        SyntaxFactory.ArgumentList())))))));
+                        SyntaxFactory.NamespaceDeclaration(
+                            SyntaxFactory.ParseName(@namespace))
+                        .AddMembers(
+                            SyntaxFactory.ClassDeclaration(commandHandlerName)
+                                .AddModifiers(SyntaxFactory.Token(SyntaxKind.PublicKeyword))
+                                .AddBaseListTypes(
+                                    SyntaxFactory.SimpleBaseType(
+                                        SyntaxFactory.ParseTypeName($"{ABSTRACT_COMMAND_HANDLER}<{commandName}>")))
+                                .AddMembers(
+                                    SyntaxFactory.MethodDeclaration(
+                                        SyntaxFactory.ParseTypeName($"Task"),
+                                        "HandleAsync")
+                                        .AddModifiers(
+                                            SyntaxFactory.Token(SyntaxKind.ProtectedKeyword),
+                                            SyntaxFactory.Token(SyntaxKind.OverrideKeyword),
+                                            SyntaxFactory.Token(SyntaxKind.AsyncKeyword))
+                                        .AddParameterListParameters(
+                                            SyntaxFactory.Parameter(
+                                                SyntaxFactory.Identifier("command"))
+                                                .WithType(SyntaxFactory.ParseTypeName(commandName)),
+                                            SyntaxFactory.Parameter(
+                                                SyntaxFactory.Identifier("token"))
+                                                .WithType(SyntaxFactory.ParseTypeName("CancellationToken"))
+                                                .WithDefault(
+                                                    SyntaxFactory.EqualsValueClause(
+                                                        SyntaxFactory.LiteralExpression(
+                                                            SyntaxKind.DefaultLiteralExpression))))
+                                        .WithBody(
+                                            SyntaxFactory.Block(
+                                                SyntaxFactory.ThrowStatement(
+                                                    SyntaxFactory.ObjectCreationExpression(
+                                                        SyntaxFactory.ParseTypeName("NotImplementedException"))
+                                                        .WithArgumentList(
+                                                            SyntaxFactory.ArgumentList())))))));
         }
 
         private static CompilationUnitSyntax GenerateCommandHandlerClassSyntax(string commandName, string commandHandlerName, string @namespace, string[] usings)
