@@ -31,7 +31,7 @@ namespace Aurora.DevAssist.CodeRefactorings
             var syntaxRoot = await document.GetSyntaxRootAsync(cancellationToken).ConfigureAwait(false);
             var node = syntaxRoot.FindNode(context.Span);
 
-            // WHEN THE MOUSE POINTER FOCUSES ON THE NEW COMMAND
+            // WHEN THE MOUSE POINTER FOCUSES ON THE NEW COMMAND OR NEW QUERY
             if (node is IdentifierNameSyntax identifierSyntax && node.Parent is ObjectCreationExpressionSyntax objectCreationSyntax)
             {
                 var classNameTyping = identifierSyntax.Identifier.Text;
@@ -42,44 +42,38 @@ namespace Aurora.DevAssist.CodeRefactorings
 
                 if (classNameTyping.EndsWith(COMMAND_SUFFIX) || classNameTyping.EndsWith(QUERY_SUFFIX))
                 {
-                    var existingClass = await FindExistingClassAsync(solution, classNameTyping, cancellationToken);
-                    if (existingClass)
-                        return;
-
                     var @namespace = await GetNamespaceAsync(document, node.Span, cancellationToken);
                     var serviceName = GetServiceName(@namespace);
 
                     if (string.IsNullOrEmpty(serviceName))
                         return;
 
-                    var codeActions = new List<CodeAction>();
-                    if (classNameTyping.EndsWith(COMMAND_SUFFIX))
-                    {
-                        var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
-                            cancellation => CreateObjectCreationCommandAsync(document, serviceName, classNameTyping, cancellation),
-                            equivalenceKey: nameof(RequestCodeRefactoringProvider));
-                        codeActions.Add(commandAction);
-                    }
-                    else if (classNameTyping.EndsWith(QUERY_SUFFIX))
-                    {
-                        var queryAction = CodeAction.Create(QUERY_DESCRIPTION,
-                            cancellation => CreateObjectCreationQueryAsync(document, serviceName, classNameTyping, cancellation),
-                            equivalenceKey: nameof(RequestCodeRefactoringProvider));
-                        codeActions.Add(queryAction);
-                    }
-
+                    // forcus on new Command, new Query
+                    // var command = new Command(); var command = new Command(dto);
+                    // var query = new Query(); var query = new Query(dto);
+                    var codeActions = await NewCommandQueryObjectCreationAsync(document, classNameTyping, serviceName);
                     context.AddCodeActions(codeActions);
                 }
             }
             // WHEN THE MOUSE POINTER FOCUSES ON THE ARGUMENTS OF METHOD SENDCOMMAND
             else if (node is IdentifierNameSyntax identifierName && node?.Parent?.Parent is GenericNameSyntax parentGenericNameSyntax)
             {
+                // forcus on argument
+                // await _scopedMediator.SendCommand<Command, Dto>(command_type);
+                // await _scopedMediator.SendQuery<Query, Dto>(query_type);
+                // var response = await _scopedMediator.SendCommand<Command, Dto>(command_type);
+                // var response = await _scopedMediator.SendQuery<Query, Dto>(query_type);
                 var codeActions = await DetectSendCommandQueryAddCodeActionAsync(parentGenericNameSyntax, document, cancellationToken);
                 context.AddCodeActions(codeActions);
             }
             // WHEN THE MOUSE POINTER FOCUSES ON THE METHOD SENDCOMMAND
             else if (node is GenericNameSyntax nodeGenericNameSyntax)
             {
+                // forcus on [SendCommand], [SendQuery]
+                // await _scopedMediator.SendCommand<Command, Dto>(command_type);
+                // await _scopedMediator.SendQuery<Query, Dto>(query_type);
+                // var response = await _scopedMediator.SendCommand<Command, Dto>(command_type);
+                // var response = await _scopedMediator.SendQuery<Query, Dto>(query_type);
                 var codeActions = await DetectSendCommandQueryAddCodeActionAsync(nodeGenericNameSyntax, document, cancellationToken);
                 context.AddCodeActions(codeActions);
             }
@@ -91,17 +85,32 @@ namespace Aurora.DevAssist.CodeRefactorings
                     .FirstOrDefault()?.DescendantNodes()
                     .OfType<InvocationExpressionSyntax>().FirstOrDefault();
 
-                if (invocationExpression == null)
-                    return;
-
-                var memberAccessExpression = invocationExpression.Expression as MemberAccessExpressionSyntax;
-                if (memberAccessExpression == null)
-                    return;
-
-                if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
+                if (invocationExpression != null)
                 {
-                    var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
-                    context.AddCodeActions(codeActions);
+                    var memberAccessExpression = invocationExpression.Expression as MemberAccessExpressionSyntax;
+                    if (memberAccessExpression == null)
+                        return;
+
+                    if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
+                    {
+                        var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
+                        context.AddCodeActions(codeActions);
+                    }
+                }
+                else
+                {
+                    var objectCreation = variableDeclarator.DescendantNodes()
+                      .OfType<ObjectCreationExpressionSyntax>().FirstOrDefault();
+
+                    if (objectCreation != null)
+                    {
+                        var className = objectCreation.Type.ToString();
+
+                        var @namespace = await GetNamespaceAsync(document, node.Span, cancellationToken);
+                        var serviceName = GetServiceName(@namespace);
+                        var codeActions = await NewCommandQueryObjectCreationAsync(document, className, serviceName);
+                        context.AddCodeActions(codeActions);
+                    }
                 }
             }
             // WHEN THE MOUSE POINTER FOCUSES ON THE SCOPED MEDIATOR
@@ -125,17 +134,50 @@ namespace Aurora.DevAssist.CodeRefactorings
                 if (memberAccessExpression == null)
                     return;
 
+                // focuses on [await]
+                // await _scopedMediator.SendCommand<Command>(command_type);
+                // await _scopedMediator.SendCommand<Command, Dto>(command_type);
+                // await _scopedMediator.SendQuery<Query, Dto>(query_type);
                 if (memberAccessExpression.Name is GenericNameSyntax memberAccessGenericName)
                 {
                     var codeActions = await DetectSendCommandQueryAddCodeActionAsync(memberAccessGenericName, document, cancellationToken);
                     context.AddCodeActions(codeActions);
                 }
+                // focuses on [await]
+                // await _scopedMediator.SendCommand(command);
                 else if (memberAccessExpression.Name is IdentifierNameSyntax identifierName3)
                 {
                     var codeActions = await SendCommandAddCodeActionAsync(identifierName3, document, cancellationToken);
                     context.AddCodeActions(codeActions);
                 }
             }
+        }
+
+        private async Task<CodeAction[]> NewCommandQueryObjectCreationAsync(Document document, string classNameTyping, string serviceName)
+        {
+            var existingClass = await FindExistingClassAsync(document.Project.Solution, classNameTyping, default);
+            if (existingClass)
+                return Array.Empty<CodeAction>();
+
+            var codeActions = new List<CodeAction>();
+            // ex:  var command = new Command(dto);
+            if (classNameTyping.EndsWith(COMMAND_SUFFIX))
+            {
+                var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
+                    cancellation => CreateObjectCreationCommandAsync(document, serviceName, classNameTyping, cancellation),
+                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
+                codeActions.Add(commandAction);
+            }
+            // ex:  var query = new Query(dto);
+            else if (classNameTyping.EndsWith(QUERY_SUFFIX))
+            {
+                var queryAction = CodeAction.Create(QUERY_DESCRIPTION,
+                    cancellation => CreateObjectCreationQueryAsync(document, serviceName, classNameTyping, cancellation),
+                    equivalenceKey: nameof(RequestCodeRefactoringProvider));
+                codeActions.Add(queryAction);
+            }
+
+            return Array.Empty<CodeAction>();
         }
 
         private async Task<CodeAction[]> DetectSendCommandQueryAddCodeActionAsync(GenericNameSyntax genericName, Document document, CancellationToken cancellationToken)

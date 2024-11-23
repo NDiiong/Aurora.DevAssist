@@ -355,6 +355,10 @@ namespace Aurora.DevAssist.CodeRefactorings
                             var serviceName = GetServiceName(@namespace);
 
                             var classNameTyping = commandType.Name;
+                            var existingClassCommand = await FindExistingClassAsync(document.Project.Solution, classNameTyping, cancellationToken);
+                            if (existingClassCommand)
+                                return Array.Empty<CodeAction>();
+
                             var commandAction = CodeAction.Create(COMMAND_DESCRIPTION,
                                cancellation => CreateObjectCreationCommandAsync(document, serviceName, classNameTyping, cancellation),
                                equivalenceKey: nameof(RequestCodeRefactoringProvider));
