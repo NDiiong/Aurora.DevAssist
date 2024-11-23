@@ -170,31 +170,38 @@ namespace Aurora.DevAssist.CodeRefactorings
 
         private async Task<bool> FindExistingClassAsync(Solution solution, string className, CancellationToken cancellationToken)
         {
-            if (solution == null || string.IsNullOrWhiteSpace(className))
-                return false;
-
-            foreach (var projectId in solution.ProjectIds)
+            try
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                var project = solution.GetProject(projectId);
+                if (solution == null || string.IsNullOrWhiteSpace(className))
+                    return false;
 
-                // Use GetAllDocuments() to include all documents in nested folders
-                var documents = project.Documents;
-
-                foreach (var document in documents)
+                foreach (var projectId in solution.ProjectIds)
                 {
-                    var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
-                    var matchingType = semanticModel.Compilation.GetSymbolsWithName(
-                        name => name == className,
-                        SymbolFilter.Type)
-                        .OfType<INamedTypeSymbol>()
-                        .FirstOrDefault();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var project = solution.GetProject(projectId);
 
-                    if (matchingType != null)
-                        return true;
+                    // Use GetAllDocuments() to include all documents in nested folders
+                    var documents = project.Documents;
+
+                    foreach (var document in documents)
+                    {
+                        var semanticModel = await document.GetSemanticModelAsync(cancellationToken);
+                        var matchingType = semanticModel.Compilation.GetSymbolsWithName(
+                            name => name == className,
+                            SymbolFilter.Type)
+                            .OfType<INamedTypeSymbol>()
+                            .FirstOrDefault();
+
+                        if (matchingType != null)
+                            return true;
+                    }
                 }
+                return false;
             }
-            return false;
+            catch (Exception ex)
+            {
+                return true;
+            }
         }
 
         private static string GetServiceName(string currentNamespace)
