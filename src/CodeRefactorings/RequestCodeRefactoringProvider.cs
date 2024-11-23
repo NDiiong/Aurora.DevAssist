@@ -99,9 +99,7 @@ namespace Aurora.DevAssist.CodeRefactorings
                 }
                 else
                 {
-                    var objectCreation = variableDeclarator.DescendantNodes()
-                      .OfType<ObjectCreationExpressionSyntax>().FirstOrDefault();
-
+                    var objectCreation = variableDeclarator.DescendantNodes().OfType<ObjectCreationExpressionSyntax>().FirstOrDefault();
                     if (objectCreation != null)
                     {
                         var className = objectCreation.Type.ToString();
